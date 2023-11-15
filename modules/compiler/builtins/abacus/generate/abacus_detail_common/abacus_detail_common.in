@@ -115,8 +115,10 @@ template<typename T> T degrees(const T& t) {
   return t * T(57.295779513082320876798154814105170332405472466564321);
 }
 
-template<typename T, typename U> T mix(const T& x, const T& y, const U& a) {
-  return x + ((y - x) * T(a));
+template <typename T> T mix(const T &x, const T &y, const T &a) {
+  // Expand x + (y - x) * a as x + y * a - x * a and swap the terms around for
+  // improved accuracy.
+  return __abacus_fma(y, a, -__abacus_fma(x, a, -x));
 }
 
 template<typename T> T radians(const T& t) {

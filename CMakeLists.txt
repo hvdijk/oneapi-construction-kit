@@ -90,7 +90,7 @@ ca_immutable_option(CA_ENABLE_DEBUG_SUPPORT BOOL
 ca_option(CA_ENABLE_DEBUG_BACKTRACE BOOL
   "Enable debug backtrace support" OFF)
 ca_option(CA_ENABLE_LLVM_OPTIONS_IN_RELEASE BOOL
-  "Enable support for CA_LLVM_OPTIONS regardless of build type" OFF)
+  "Enable support for CA_LLVM_OPTIONS regardless of build type" ON)
 ca_option(CA_ENABLE_COVERAGE BOOL
   "Enable driver source coverage" OFF)
 ca_option(CA_EXTERNAL_BUILTINS BOOL

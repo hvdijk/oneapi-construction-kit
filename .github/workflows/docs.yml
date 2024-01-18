@@ -12,6 +12,10 @@ on:
       - doc/**
       - .github/workflows/docs.yml
 
+  push:
+    branches:
+      - bump-sphinx
+
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 

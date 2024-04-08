@@ -299,6 +299,7 @@ class TestResults(object):
         else:
             self.num_fails += 1
         if run.total_tests is not None:
+            print(f"DEBUG: {run.test.name}: passed_tests={run.passed_tests}, total_tests={run.total_tests}")
             self.num_total_cts += run.total_tests
             if run.passed_tests is not None:
                 self.num_passes_cts += run.passed_tests

@@ -18,10 +18,6 @@
 #include <refsi_m1/info.h>
 #include <refsi_m1/target.h>
 
-namespace riscv {
-struct hal_device_info_riscv_t;
-}
-
 namespace refsi_m1 {
 
 RefSiM1Info::RefSiM1Info(mux_device_info_t mux_device_info,

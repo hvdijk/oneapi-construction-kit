@@ -194,7 +194,7 @@ class refsi_hal : public hal::hal_t {
     }
 
     // Update various properties based on the info we've just parsed.
-    hal_device_info.update_base_info_from_riscv(hal_device_info);
+    riscv::update_base_info_from_riscv(hal_device_info);
 
     if (hal_device_info.extensions & riscv::rv_extension_V) {
       hal_device_info.vlen = device_info.core_vlen;

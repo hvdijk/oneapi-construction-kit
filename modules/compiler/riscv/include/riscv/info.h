@@ -28,7 +28,6 @@
 namespace riscv {
 class RiscvModule;
 class RiscvTarget;
-struct hal_device_info_riscv_t;
 
 struct RiscvInfo : compiler::Info {
   RiscvInfo(mux_device_info_t mux_device_info,

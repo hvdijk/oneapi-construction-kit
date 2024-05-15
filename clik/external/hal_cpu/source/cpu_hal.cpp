@@ -33,6 +33,8 @@
 #include <string>
 #include <thread>
 
+#include <hal_riscv.h>
+
 #include "device/device_if.h"
 
 hal::hal_device_info_t cpu_hal::setup_cpu_hal_device_info() {
@@ -47,6 +49,7 @@ hal::hal_device_info_t cpu_hal::setup_cpu_hal_device_info() {
       global_ram_size - global_mem_max_over_allocation;
   hal_device_info.shared_local_memory_size = local_ram_size;
   hal_device_info.should_link = true;
+  hal_device_info.link_shared = true;
   hal_device_info.should_vectorize = false;
   // TODO: This is slightly arbitrary and based on the "host" target
   hal_device_info.preferred_vector_width = 128 / (8 * sizeof(uint8_t));
@@ -61,6 +64,11 @@ hal::hal_device_info_t cpu_hal::setup_cpu_hal_device_info() {
 #endif
   hal_device_info.is_little_endian = true;
   hal_device_info.linker_script = "";
+
+  // Currently only has meaning for risc-v
+  hal_device_info.vlen = 0;
+  hal_device_info.extensions = riscv::rv_extension_G;
+  hal_device_info.abi = hal_device_info.word_size == 64 ? riscv::rv_abi_LP64D : riscv::rv_abi_ILP32D;
   return hal_device_info;
 }
 

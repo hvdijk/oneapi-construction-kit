@@ -176,6 +176,19 @@ struct hal_device_info_t {
 
   /// @brief Array of counter descriptions. Can be null if num_counters == 0.
   hal_counter_description_t *counter_descriptions = nullptr;
+
+  // @brief bit-field describing the supported extensions (combination of
+  // rv_extension_?`s for risc-v)
+  uint64_t extensions;
+  // @brief the target ABI OCK should compile for
+  uint32_t abi;
+
+  // @brief vlen - default to 0 (which means for RISC-V the v extension is not
+  // enabled or the actual vlen cannot be determined). For X86_64 has no meaning
+  // and should be set to 0
+  uint32_t vlen = 0;
+
+  bool link_shared = false;
 };
 
 struct hal_info_t {

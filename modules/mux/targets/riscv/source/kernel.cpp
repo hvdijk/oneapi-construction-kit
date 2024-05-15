@@ -35,11 +35,8 @@ cargo::expected<riscv::kernel_s *, mux_result_t> kernel_s::create(
     cargo::string_view name, mux::allocator allocator) {
   auto *hal_device_info = static_cast<const riscv::hal_device_info_riscv_t *>(
       device->hal_device->get_info());
-  // Note if VLEN is unknown this will return 0
-  // Assert non-zero as sub_group_size is unknowable without it
-  assert(hal_device_info->vlen &&
-         "vlen must be known at runtime to calculate subgroup width");
-  unsigned real_vscale = hal_device_info->vlen / 64;
+
+  const unsigned real_vscale = hal_device_info->vlen / 64;
 
   cargo::small_vector<mux::hal::kernel_variant_s, 4> variants;
   for (auto &meta : executable->kernel_info) {
@@ -50,10 +47,19 @@ cargo::expected<riscv::kernel_s *, mux_result_t> kernel_s::create(
     variant.variant_name = meta.kernel_name;
     variant.sub_group_size = meta.sub_group_size.getKnownMinValue();
     if (meta.sub_group_size.isScalable()) {
+      // Assert non-zero as sub_group_size is unknowable without vlen != 0
+      assert(
+          hal_device_info->vlen &&
+          "vlen must be known at runtime to calculate scalable subgroup width");
       variant.sub_group_size *= real_vscale;
     }
     variant.min_work_width = meta.min_work_item_factor.getKnownMinValue();
+    variant.min_work_width = meta.min_work_item_factor.getKnownMinValue();
     if (meta.min_work_item_factor.isScalable()) {
+      // Assert non-zero as sub_group_size is unknowable without vlen != 0
+      assert(
+          hal_device_info->vlen &&
+          "vlen must be known at runtime to calculate scalable subgroup width");
       variant.min_work_width *= real_vscale;
     }
     variant.pref_work_width = meta.pref_work_item_factor.getKnownMinValue();

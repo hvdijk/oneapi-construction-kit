@@ -267,7 +267,7 @@ compiler::Result HostTarget::initWithBuiltins(
     CPUName = CA_HOST_TARGET_AARCH64_CPU;
 #endif
   } else if (triple.isX86()) {
-    CPUName = "x86-64-v3";  // Default only, may be overridden below.
+    CPUName = "x86-64-v4";  // Default only, may be overridden below.
     if (triple.isArch32Bit()) {
 #if defined(CA_HOST_TARGET_X86_CPU)
       CPUName = CA_HOST_TARGET_X86_CPU;

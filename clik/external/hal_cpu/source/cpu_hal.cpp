@@ -37,11 +37,11 @@
 
 #include "device/device_if.h"
 
-hal::hal_device_info_t cpu_hal::setup_cpu_hal_device_info() {
+hal::hal_device_info_t &cpu_hal::setup_cpu_hal_device_info() {
   const uint64_t global_ram_size = 256 << 20;
   const uint64_t global_mem_max_over_allocation = 16 << 20;
   const uint64_t local_ram_size = 8 << 20;
-  hal::hal_device_info_t hal_device_info;
+  static riscv::hal_device_info_riscv_t hal_device_info;
   hal_device_info.type = hal::hal_device_type_riscv;
   hal_device_info.word_size = sizeof(uintptr_t) * 8;
   hal_device_info.target_name = "ock cpu";

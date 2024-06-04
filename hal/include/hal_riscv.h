@@ -86,15 +86,25 @@ enum riscv_abi_t {
   rv_abi_LP64Q
 };
 
-typedef hal::hal_device_info_t hal_device_info_riscv_t;
+struct hal_device_info_riscv_t : public hal::hal_device_info_t {
+  // bit-field describing the supported extensions (combination of
+  // rv_extension_?`s)
+  uint64_t extensions;
+  // the target ABI ComputeAorta should compile for
+  uint32_t abi;
 
-/// @brief Update base device info with known values in the riscv info
-/// extensions for example want should_vectorize
-inline void update_base_info_from_riscv(::hal::hal_device_info_t &info) {
-  info.should_vectorize = info.extensions & rv_extension_V;
-  info.supports_doubles = info.extensions & rv_extension_D;
-  info.supports_fp16 = info.extensions & rv_extension_Zfh;
-}
+  /// @brief Update base device info with known values in the riscv info
+  /// extensions for example want should_vectorize
+  void update_base_info_from_riscv(::hal::hal_device_info_t &info) {
+    info.should_vectorize = extensions & rv_extension_V;
+    info.supports_doubles = extensions & rv_extension_D;
+    info.supports_fp16 = extensions & rv_extension_Zfh;
+  }
+
+  // vlen - default to 0 (which means the v extension is not enabled or the
+  // actual vlen cannot be determined)
+  uint32_t vlen = 0;
+};
 
 /// @}
 }  // namespace riscv

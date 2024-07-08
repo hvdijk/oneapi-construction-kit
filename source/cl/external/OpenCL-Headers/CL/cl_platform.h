@@ -24,25 +24,25 @@ extern "C" {
 #endif
 
 #if defined(_WIN32)
-#if !defined(CL_API_ENTRY)
-#define CL_API_ENTRY
-#endif
-#if !defined(CL_API_CALL)
-#define CL_API_CALL __stdcall
-#endif
-#if !defined(CL_CALLBACK)
-#define CL_CALLBACK __stdcall
-#endif
+    #if !defined(CL_API_ENTRY)
+        #define CL_API_ENTRY
+    #endif
+    #if !defined(CL_API_CALL)
+        #define CL_API_CALL     __stdcall
+    #endif
+    #if !defined(CL_CALLBACK)
+        #define CL_CALLBACK     __stdcall
+    #endif
 #else
-#if !defined(CL_API_ENTRY)
-#define CL_API_ENTRY
-#endif
-#if !defined(CL_API_CALL)
-#define CL_API_CALL
-#endif
-#if !defined(CL_CALLBACK)
-#define CL_CALLBACK
-#endif
+    #if !defined(CL_API_ENTRY)
+        #define CL_API_ENTRY
+    #endif
+    #if !defined(CL_API_CALL)
+        #define CL_API_CALL
+    #endif
+    #if !defined(CL_CALLBACK)
+        #define CL_CALLBACK
+    #endif
 #endif
 
 /*
@@ -77,7 +77,7 @@ extern "C" {
 #ifdef __GNUC__
   #define CL_API_SUFFIX_DEPRECATED __attribute__((deprecated))
   #define CL_API_PREFIX_DEPRECATED
-#elif defined(_WIN32)
+#elif defined(_MSC_VER) && !defined(__clang__)
   #define CL_API_SUFFIX_DEPRECATED
   #define CL_API_PREFIX_DEPRECATED __declspec(deprecated)
 #else
@@ -140,12 +140,10 @@ extern "C" {
 #pragma clang diagnostic ignored "-Wlanguage-extension-token"
 #endif
 
-/* intptr_t is used in cl.h and provided by stddef.h in Visual C++, but not in
- * clang */
-/* stdint.h was missing before Visual Studio 2010, include it for later versions
- * and for clang */
+/* intptr_t is used in cl.h and provided by stddef.h in Visual C++, but not in clang */
+/* stdint.h was missing before Visual Studio 2010, include it for later versions and for clang */
 #if defined(__clang__) || _MSC_VER >= 1600
-#include <stdint.h>
+    #include <stdint.h>
 #endif
 
 /* scalar types  */
@@ -513,11 +511,11 @@ typedef unsigned int cl_GLenum;
 #define  __CL_HAS_ANON_STRUCT__ 1
 #define  __CL_ANON_STRUCT__
 #elif defined(_WIN32) && defined(_MSC_VER) && !defined(__STDC__)
-#define __CL_HAS_ANON_STRUCT__ 1
-#define __CL_ANON_STRUCT__
-#elif defined(__GNUC__) && !defined(__STRICT_ANSI__)
-#define __CL_HAS_ANON_STRUCT__ 1
-#define __CL_ANON_STRUCT__ __extension__
+#define  __CL_HAS_ANON_STRUCT__ 1
+#define  __CL_ANON_STRUCT__
+#elif defined(__GNUC__) && ! defined(__STRICT_ANSI__)
+#define  __CL_HAS_ANON_STRUCT__ 1
+#define  __CL_ANON_STRUCT__ __extension__
 #elif defined(__clang__)
 #define  __CL_HAS_ANON_STRUCT__ 1
 #define  __CL_ANON_STRUCT__ __extension__
@@ -527,13 +525,12 @@ typedef unsigned int cl_GLenum;
 #endif
 
 #if defined(_WIN32) && defined(_MSC_VER) && __CL_HAS_ANON_STRUCT__
-        /* Disable warning C4201: nonstandard extension used : nameless
-         * struct/union */
-#pragma warning(push)
-#pragma warning(disable : 4201)
+   /* Disable warning C4201: nonstandard extension used : nameless struct/union */
+    #pragma warning( push )
+    #pragma warning( disable : 4201 )
 #endif
 
-        /* Define alignment keys */
+/* Define alignment keys */
 #if defined( __GNUC__ ) || defined(__INTEGRITY)
     #define CL_ALIGNED(_x)          __attribute__ ((aligned(_x)))
 #elif defined( _WIN32) && (_MSC_VER)
@@ -1409,7 +1406,7 @@ typedef union
 #endif
 
 #if defined(_WIN32) && defined(_MSC_VER) && __CL_HAS_ANON_STRUCT__
-#pragma warning(pop)
+    #pragma warning( pop )
 #endif
 
 #endif  /* __CL_PLATFORM_H  */

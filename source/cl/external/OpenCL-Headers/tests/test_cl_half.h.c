@@ -95,7 +95,7 @@ int main(void)
   CHECK_FROM_FLOAT(-(CL_HALF_MAX + 1000.f), 0xfbff, RTP);
   CHECK_FROM_FLOAT(-(CL_HALF_MAX + 1000.f), 0xfc00, RTN);
   CHECK_FROM_FLOAT(-(CL_HALF_MAX + 1000.f), 0xfbff, RTZ);
-#if 0  // Hexadecimal float constant is C++17
+#if 0 // Hexadecimal float constant is C++17
   // Check tiny positive values round properly
   CHECK_FROM_FLOAT(0x1.000000p-25, 0x0000, RTE);
   CHECK_FROM_FLOAT(0x1.000000p-25, 0x0001, RTP);

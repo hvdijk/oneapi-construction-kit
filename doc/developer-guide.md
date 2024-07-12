@@ -320,6 +320,14 @@ The builtin CMake options used when invoking CMake on the command line.
   caveats above apply, and this may result in an illegal instruction crash if
   your CPU doesn't support the generated instructions.
 
+- `CA_HOST_TARGET_<arch>_FEATURES`: This option is used by the `host` target to
+  enable features on a given CPU. `arch` should be a capitalized version of the
+  `host` target architecture e.g. `X86_64`, `RISCV64` or `AARCH64`. This should
+  be of the form of a comma separated list of features with either a '+' or '-'
+  preceding each feature to enable or disable e.g. "+v,-zfencei". This is
+  compatible with `--mattr` in `LLVM` tools such as `llc` or `opt`. The
+  environment variable `CA_HOST_TARGET_FEATURES` can also be used to enable or
+  disable features when debug is enabled.
 - `CA_USE_SPLIT_DWARF`: When building with gcc, enable split dwarf debuginfo.
   This significantly reduces binary size (especially when static linking) and
   speeds up the link step. Requires a non-ancient toolchain.

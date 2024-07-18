@@ -103,18 +103,11 @@ static llvm::TargetMachine *createTargetMachine(llvm::Triple TT,
       /*JIT=*/true);
 }
 
-void UpdateFeatureMapFromString(llvm::StringMap<bool> &FeatureMap,
-                                llvm::StringRef FeatureString) {
-  const llvm::SubtargetFeatures Features(FeatureString);
-  for (const auto &Feature : Features.getFeatures()) {
-    if (llvm::SubtargetFeatures::hasFlag(Feature)) {
-      auto StrippedFeature = llvm::SubtargetFeatures::StripFlag(Feature);
-      FeatureMap[StrippedFeature] = llvm::SubtargetFeatures::isEnabled(Feature);
-    } else {
-      llvm::errs() << "Warning: '" << Feature
-                   << " should be of the form '+Feature' or '-Feature'\n";
-    }
-  }
+void UpdateFeaturesFromString(llvm::SubtargetFeatures &Features,
+                              llvm::StringRef FeatureStringToAdd) {
+  std::vector<std::string> FeaturesToAdd;
+  llvm::SubtargetFeatures::Split(FeaturesToAdd, FeatureStringToAdd);
+  for (auto &FeatureToAdd : FeaturesToAdd) Features.AddFeature(FeatureToAdd);
 }
 
 HostTarget::HostTarget(const HostInfo *compiler_info,
@@ -256,59 +249,7 @@ compiler::Result HostTarget::initWithBuiltins(
 
   llvm::StringRef ABI = "";
   llvm::StringRef CPUName = "";
-  llvm::StringMap<bool> FeatureMap;
-
-  if (llvm::Triple::arm == triple.getArch()) {
-    FeatureMap["strict-align"] = true;
-    // We do not support denormals for single precision floating points, but we
-    // do for double precision. To support that we use neon (which is FTZ) for
-    // single precision floating points, and use the VFP with denormal support
-    // enabled for doubles. The neonfp feature enables the use of neon for
-    // single precision floating points.
-    FeatureMap["neonfp"] = true;
-    FeatureMap["neon"] = true;
-    // Hardware division instructions might not exist on all ARMv7 CPUs, but
-    // they probably exist on all the ones we might care about.
-    FeatureMap["hwdiv"] = true;
-    FeatureMap["hwdiv-arm"] = true;
-    if (host_device_info.half_capabilities) {
-      FeatureMap["fp16"] = true;
-    }
-#if defined(CA_HOST_TARGET_ARM_CPU)
-    CPUName = CA_HOST_TARGET_ARM_CPU;
-#endif
-  } else if (llvm::Triple::aarch64 == triple.getArch()) {
-#if defined(CA_HOST_TARGET_AARCH64_CPU)
-    CPUName = CA_HOST_TARGET_AARCH64_CPU;
-#endif
-  } else if (triple.isX86()) {
-    CPUName = "x86-64-v3";  // Default only, may be overridden below.
-    if (triple.isArch32Bit()) {
-#if defined(CA_HOST_TARGET_X86_CPU)
-      CPUName = CA_HOST_TARGET_X86_CPU;
-#endif
-    } else {
-#if defined(CA_HOST_TARGET_X86_64_CPU)
-      CPUName = CA_HOST_TARGET_X86_64_CPU;
-#endif
-    }
-  } else if (triple.isRISCV()) {
-    // These are reasonable defaults, which has been used for various RISC-V
-    // target so far. We should allow overriding of the ABI in the future
-    if (triple.isArch32Bit()) {
-      ABI = "ilp32d";
-      CPUName = "generic-rv32";
-#if defined(CA_HOST_TARGET_RISCV32_CPU)
-      CPUName = CA_HOST_TARGET_RISCV32_CPU;
-#endif
-    } else {
-      ABI = "lp64d";
-      CPUName = "generic-rv64";
-#if defined(CA_HOST_TARGET_RISCV64_CPU)
-      CPUName = CA_HOST_TARGET_RISCV64_CPU;
-#endif
-    }
-  }
+  llvm::SubtargetFeatures Features;
 
 #ifndef NDEBUG
   if (const char *E = getenv("CA_HOST_TARGET_CPU")) {
@@ -319,80 +260,79 @@ compiler::Result HostTarget::initWithBuiltins(
   if (CPUName == "native") {
     CPUName = llvm::sys::getHostCPUName();
 #if LLVM_VERSION_GREATER_EQUAL(19, 0)
-    FeatureMap = llvm::sys::getHostCPUFeatures();
+    auto FeatureMap = llvm::sys::getHostCPUFeatures();
 #else
-    FeatureMap.clear();
+    llvm::StringMap<bool> FeatureMap;
     llvm::sys::getHostCPUFeatures(FeatureMap);
 #endif
+    for (auto &[FeatureName, IsEnabled] : FeatureMap) {
+      Features.AddFeature(FeatureName, IsEnabled);
+    }
   }
 
   std::string FeatureStr;
 
   if (llvm::Triple::arm == triple.getArch()) {
-    FeatureMap["strict-align"] = true;
+    Features.AddFeature("strict-align", true);
     // We do not support denormals for single precision floating points, but we
     // do for double precision. To support that we use neon (which is FTZ) for
     // single precision floating points, and use the VFP with denormal support
     // enabled for doubles. The neonfp feature enables the use of neon for
     // single precision floating points.
-    FeatureMap["neonfp"] = true;
-    FeatureMap["neon"] = true;
+    Features.AddFeature("neonfp", true);
+    Features.AddFeature("neon", true);
     // Hardware division instructions might not exist on all ARMv7 CPUs, but
     // they probably exist on all the ones we might care about.
-    FeatureMap["hwdiv"] = true;
-    FeatureMap["hwdiv-arm"] = true;
+    Features.AddFeature("hwdiv", true);
+    Features.AddFeature("hwdiv-arm", true);
     if (host_device_info.half_capabilities) {
-      FeatureMap["fp16"] = true;
+      Features.AddFeature("fp16", true);
     }
 #if defined(CA_HOST_TARGET_ARM_FEATURES)
-    FeatureStr = CA_HOST_TARGET_ARM_FEATURES;
+    UpdateFeaturesFromString(Features, CA_HOST_TARGET_ARM_FEATURES);
 #endif
   } else if (llvm::Triple::aarch64 == triple.getArch()) {
 #if defined(CA_HOST_TARGET_AARCH64_FEATURES)
-    FeatureStr = CA_HOST_TARGET_AARCH64_FEATURES;
+    UpdateFeaturesFromString(Features, CA_HOST_TARGET_AARCH64_FEATURES);
 #endif
   } else if (triple.isX86()) {
     CPUName = "x86-64-v3";  // Default only, may be overridden below.
     if (triple.isArch32Bit()) {
 #if defined(CA_HOST_TARGET_X86_FEATURES)
-      FeatureStr = CA_HOST_TARGET_X86_FEATURES;
+      UpdateFeaturesFromString(Features, CA_HOST_TARGET_X86_FEATURES);
 #endif
     } else {
 #if defined(CA_HOST_TARGET_X86_64_FEATURES)
-      FeatureStr = CA_HOST_TARGET_X86_64_FEATURES;
+      UpdateFeaturesFromString(Features, CA_HOST_TARGET_X86_64_FEATURES);
 #endif
     }
   } else if (triple.isRISCV()) {
     // The following features are important for OpenCL, and generally constitute
     // a minimum requirement for non-embedded profile. Without these features,
     // we'd need compiler-rt support. Atomics are absolutely essential.
-    // TODO: Allow overriding of the input features.
-    FeatureMap["m"] = true;  // Integer multiplication and division
-    FeatureMap["f"] = true;  // Floating point support
-    FeatureMap["a"] = true;  // Atomics
+    Features.AddFeature("m", true);  // Integer multiplication and division
+    Features.AddFeature("f", true);  // Floating point support
+    Features.AddFeature("a", true);  // Atomics
 #if defined(CA_HOST_ENABLE_FP64)
-    FeatureMap["d"] = true;  // Double support
+    Features.AddFeature("d", true);  // Double support
 #endif
 #if defined(CA_HOST_ENABLE_FP16)
-    FeatureMap["zfh"] = true;  // Half support
+    Features.AddFeature("zfh", true);  // Half support
 #endif
     if (triple.isArch32Bit()) {
 #if defined(CA_HOST_TARGET_RISCV32_FEATURES)
-      FeatureStr = CA_HOST_TARGET_RISCV32_FEATURES;
+      UpdateFeaturesFromString(Features, CA_HOST_TARGET_RISCV32_FEATURES);
 #endif
     } else {
 #if defined(CA_HOST_TARGET_RISCV64_FEATURES)
-      FeatureStr = CA_HOST_TARGET_RISCV64_FEATURES;
+      UpdateFeaturesFromString(Features, CA_HOST_TARGET_RISCV64_FEATURES);
 #endif
     }
   }
-  UpdateFeatureMapFromString(FeatureMap, FeatureStr);
 
 #ifndef NDEBUG
-  if (const char *E = getenv("CA_HOST_TARGET_FEATURES")) {
-    FeatureStr = E;
-    // Override features set above, either in cmake or default features
-    UpdateFeatureMapFromString(FeatureMap, FeatureStr);
+  if (const char *FeatureStr = getenv("CA_HOST_TARGET_FEATURES")) {
+    UpdateFeaturesFromString(Features, FeatureStr);
   }
 #endif
 
@@ -400,9 +340,7 @@ compiler::Result HostTarget::initWithBuiltins(
     llvm::orc::JITTargetMachineBuilder TMBuilder(triple);
     TMBuilder.setCPU(CPUName.str());
     TMBuilder.setCodeGenOptLevel(multi_llvm::CodeGenOptLevel::Aggressive);
-    for (auto &Feature : FeatureMap) {
-      TMBuilder.getFeatures().AddFeature(Feature.first(), Feature.second);
-    }
+    TMBuilder.getFeatures().addFeaturesVector(Features.getFeatures());
     auto Builder = llvm::orc::LLJITBuilder();
 
     Builder.setJITTargetMachineBuilder(TMBuilder);
@@ -453,21 +391,8 @@ compiler::Result HostTarget::initWithBuiltins(
     target_machine = std::move(*TM);
   } else {
     // No JIT support so create target machine directly.
-    std::string Features;
-    bool first = true;
-    for (auto &[FeatureName, IsEnabled] : FeatureMap) {
-      if (first) {
-        first = false;
-      } else {
-        Features += ",";
-      }
-      if (IsEnabled) {
-        Features += '+' + FeatureName.str();
-      } else {
-        Features += '-' + FeatureName.str();
-      }
-    }
-    target_machine.reset(createTargetMachine(triple, CPUName, Features, ABI));
+    target_machine.reset(
+        createTargetMachine(triple, CPUName, Features.getString(), ABI));
   }
 
   return compiler::Result::SUCCESS;

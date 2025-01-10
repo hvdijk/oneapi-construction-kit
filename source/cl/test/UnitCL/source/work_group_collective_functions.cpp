@@ -892,6 +892,7 @@ TEST_P(WorkGroupCollectiveScans,
 static const NDRange local_sizes[] = {
     NDRange{64u, 1u, 1u}, NDRange{1u, 64u, 1u}, NDRange{1u, 1u, 64u},
     NDRange{67u, 1u, 1u}, NDRange{67u, 5u, 1u}, NDRange{67u, 2u, 3u},
+    NDRange{3u, 1u, 1u}, NDRange{1u, 3u, 1u}, NDRange{1u, 1u, 3u},
 };
 
 static const kts::ucl::SourceType source_types[] = {

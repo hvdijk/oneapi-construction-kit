@@ -80,6 +80,8 @@ static bool hostVeczPassOpts(
 
   vecz::VeczPassOptions vecz_options;
   vecz_options.choices.enable(vecz::VectorizationChoices::eDivisionExceptions);
+  vecz_options.choices.enable(vecz::VectorizationChoices::eFullScalarization);
+  vecz_options.choices.enable(vecz::VectorizationChoices::eVectorPredication);
 
   const char *choices_string = std::getenv("CODEPLAY_VECZ_CHOICES");
   if (choices_string &&

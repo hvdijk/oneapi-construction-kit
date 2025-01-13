@@ -204,7 +204,6 @@ struct ScheduleGenerator {
   Value *mainLoopLimit = nullptr;
   Value *peel = nullptr;
   bool emitTail = true;
-  bool isVectorPredicated = false;
   bool wrapperHasMain = false;
   bool wrapperHasTail = false;
 
@@ -1476,50 +1475,87 @@ Function *compiler::utils::WorkItemLoopsPass::makeWrapperFunction(
   // happening.
   // We want to insert a call to __mux__set_max_sub_group_size after these
   // assumptions, to keep track of the last one we've inserted.
-  Instruction *setMaxSubgroupSizeInsertPt = nullptr;
   for (auto i = 0; i < 3; i++) {
     auto *const nonZero = entryIR.CreateICmpNE(
         localSizeDim[i], ConstantInt::get(localSizeDim[i]->getType(), 0));
-    setMaxSubgroupSizeInsertPt = entryIR.CreateAssumption(nonZero);
+    entryIR.CreateAssumption(nonZero);
   }
 
-  const bool isVectorPredicated = barrierMain.getVFInfo().IsVectorPredicated;
+  // There are three cases:
+  //
+  // 1. !emitTail. In this case, only the main function will be called. The main
+  // function may be a scalar function, may be a predicated vector function, or
+  // may be an unpredicated vector function where the local size is known to be
+  // a multiple of the vectorization factor.
+  //
+  // 2. emitTail && tailInfo->IsVectorPredicated. In this case, the main
+  // function will be unpredicated and will be called for any multiples of vf,
+  // and one tail call will handle any remainder. vf of the main function and
+  // the tail function are the same.
+  //
+  // 3. emitTail && !tailInfo->IsVectorPredicated. In this case, if local_size_x
+  // is a multiple of the main function's vf, the main function will handle the
+  // full loop, and otherwise the tail function will handle the full loop.
+  //
+  // In all 3 cases, the subgroups are calculated as
+  //
+  //    get_max_sub_group_size() = min(vf, local_size_x)
+  //    get_num_sub_groups() = ((local_size_x + vector_width - 1) / vf)
+  //      * local_size_y * local_size_z
+  //
+  // where vf is based on which functions get used.
 
   Value *mainLoopLimit = localSizeDim[workItemDim0];
   Value *peel = nullptr;
+
+  Value *effectiveVF = VF;
+
   if (emitTail) {
-    peel = entryIR.CreateSRem(mainLoopLimit, VF, "peel");
+    auto *const rem = entryIR.CreateSRem(mainLoopLimit, VF, "rem");
+    if (tailInfo->IsVectorPredicated) {
+      peel = rem;
+    } else {
+      // We must have no more than one iteration with a subgroup size below the
+      // maximum subgroup size. To meet this requirement, if the tail is scalar
+      // and the vector size does not divide the workgroup size, do not use the
+      // vectorized kernel at all.
+      auto *const remcond = entryIR.CreateICmpNE(
+          rem, Constant::getNullValue(rem->getType()), "remcond");
+      peel = entryIR.CreateSelect(
+          remcond, mainLoopLimit,
+          Constant::getNullValue(mainLoopLimit->getType()), "peel");
+      effectiveVF = entryIR.CreateSelect(
+          remcond, materializeVF(entryIR, barrierTail->getVFInfo().vf), VF);
+    }
     mainLoopLimit = entryIR.CreateSub(mainLoopLimit, peel, "mainLoopLimit");
   }
 
-  // Set the number of subgroups in this kernel
+  // Set the subgroup maximum size and number of subgroups in this kernel
+  // wrapper.
   {
+    auto setMaxSubgroupSizeFn =
+        BI.getOrDeclareMuxBuiltin(eMuxBuiltinSetMaxSubGroupSize, M);
+    assert(setMaxSubgroupSizeFn && "Missing __mux_set_max_sub_group_size");
     auto setNumSubgroupsFn =
         BI.getOrDeclareMuxBuiltin(eMuxBuiltinSetNumSubGroups, M);
     assert(setNumSubgroupsFn && "Missing __mux_set_num_sub_groups");
-    // First, compute Z * Y
-    auto *const numSubgroupsZY = entryIR.CreateMul(
-        localSizeDim[workItemDim2], localSizeDim[workItemDim1], "sg.zy");
-    // Now multiply by the number of subgroups in the X dimension.
-    auto *numSubgroupsX = entryIR.CreateUDiv(mainLoopLimit, VF, "sg.main.x");
-    // Add on any tail iterations here.
-    if (peel) {
-      numSubgroupsX = entryIR.CreateAdd(numSubgroupsX, peel, "sg.x");
-    } else if (isVectorPredicated) {
-      // Vector predication will use an extra subgroup to mop up any remainder.
-      auto *const leftover = entryIR.CreateSRem(mainLoopLimit, VF, "peel");
-      auto *hasLeftover = entryIR.CreateICmp(
-          CmpInst::ICMP_NE, leftover, ConstantInt::get(leftover->getType(), 0),
-          "sg.has.vp");
-      hasLeftover = entryIR.CreateZExt(hasLeftover, numSubgroupsX->getType());
-      numSubgroupsX = entryIR.CreateAdd(numSubgroupsX, hasLeftover, "sg.x");
-    }
-    auto *numSubgroups =
-        entryIR.CreateMul(numSubgroupsZY, numSubgroupsX, "sg.zyx");
-    if (numSubgroups->getType() != i32Ty) {
-      numSubgroups = entryIR.CreateTrunc(numSubgroups, i32Ty);
-    }
-    entryIR.CreateCall(setNumSubgroupsFn, {numSubgroups});
+    auto *const localSizeInVecDim = localSizeDim[workItemDim0];
+    auto *const localSizeInNonVecDim = entryIR.CreateMul(
+        localSizeDim[workItemDim1], localSizeDim[workItemDim2], "wg.yz");
+    auto *maxSubgroupSize = entryIR.CreateBinaryIntrinsic(
+        Intrinsic::umin, localSizeInVecDim, VF, {}, "sg.x");
+    entryIR.CreateCall(setMaxSubgroupSizeFn,
+                       {entryIR.CreateTrunc(maxSubgroupSize, i32Ty)});
+    auto *const numSubgroupsInVecDim = entryIR.CreateUDiv(
+        entryIR.CreateAdd(
+            localSizeInVecDim,
+            entryIR.CreateSub(effectiveVF,
+                              ConstantInt::get(effectiveVF->getType(), 1))),
+        effectiveVF, "sgs.x");
+    auto *const numSubgroups =
+        entryIR.CreateMul(numSubgroupsInVecDim, localSizeInNonVecDim, "sgs");
+    entryIR.CreateCall(setNumSubgroupsFn,
+                       {entryIR.CreateTrunc(numSubgroups, i32Ty)});
   }
 
   if (barrierMain.hasLiveVars()) {
@@ -1528,7 +1564,7 @@ Function *compiler::utils::WorkItemLoopsPass::makeWrapperFunction(
     // This catches cases where we need two loop iterations, e.g., VF=4 and
     // size=7, where rounding down would give one.
     Value *numerator = mainLoopLimit;
-    if (isVectorPredicated) {
+    if (mainInfo.IsVectorPredicated) {
       Value *const vf_minus_1 =
           entryIR.CreateSub(VF, ConstantInt::get(VF->getType(), 1));
       numerator = entryIR.CreateAdd(mainLoopLimit, vf_minus_1);
@@ -1544,7 +1580,7 @@ Function *compiler::utils::WorkItemLoopsPass::makeWrapperFunction(
   // barriers, even when the main kernel does not.
   if (emitTail && barrierTail->hasLiveVars()) {
     Value *size0 = peel;
-    if (barrierTail->getVFInfo().IsVectorPredicated) {
+    if (tailInfo->IsVectorPredicated) {
       // If the tail is predicated, it will only have a single (vectorized) item
       // along the X axis, or none.
       auto *const hasLeftover = entryIR.CreateICmp(
@@ -1583,7 +1619,6 @@ Function *compiler::utils::WorkItemLoopsPass::makeWrapperFunction(
   schedule.nextID = nextID;
   schedule.mainLoopLimit = mainLoopLimit;
   schedule.emitTail = emitTail;
-  schedule.isVectorPredicated = isVectorPredicated;
   schedule.peel = peel;
 
   // Make call instruction for first new kernel. It follows wrapper function's
@@ -1723,45 +1758,6 @@ Function *compiler::utils::WorkItemLoopsPass::makeWrapperFunction(
 
   bbs[kBarrier_EndID]->moveAfter(&new_wrapper->back());
   bbs[kBarrier_EndID]->setName("kernel.exit");
-
-  // Set the subgroup maximum size in this kernel wrapper.
-  // There are three cases:
-  //
-  // 1. With no vectorization:
-  //    get_max_sub_group_size() = mux sub-group size
-  //
-  // 2. With predicated vectorization:
-  //    get_max_sub_group_size() = min(vector_width,
-  //    local_size_in_vectorization_dimension)
-  //
-  // 3. Without predicated vectorization:
-  //    get_max_sub_group_size() = local_size_in_vectorization_dimension
-  //    < vector_width ? mux sub-group size : vector_width
-  {
-    // Reset the insertion point back to the wrapper entry block, after VF was
-    // materialized.
-    entryIR.SetInsertPoint(setMaxSubgroupSizeInsertPt);
-    auto setMaxSubgroupSizeFn =
-        BI.getOrDeclareMuxBuiltin(eMuxBuiltinSetMaxSubGroupSize, M);
-    assert(setMaxSubgroupSizeFn && "Missing __mux_set_max_sub_group_size");
-    // Assume no vectorization to begin with i.e. get_max_sub_group_size() = mux
-    // sub-group size.
-    Value *maxSubgroupSize = entryIR.getInt32(getMuxSubgroupSize(refF));
-    if (schedule.wrapperHasMain) {
-      auto *localSizeInVecDim = localSizeDim[workItemDim0];
-      auto *cmp = entryIR.CreateICmpULT(localSizeInVecDim, VF);
-      if (isVectorPredicated) {
-        maxSubgroupSize = entryIR.CreateSelect(cmp, localSizeInVecDim, VF);
-      } else {
-        maxSubgroupSize = entryIR.CreateSelect(
-            cmp, ConstantInt::get(VF->getType(), getMuxSubgroupSize(refF)), VF);
-      }
-      if (maxSubgroupSize->getType() != i32Ty) {
-        maxSubgroupSize = entryIR.CreateTrunc(maxSubgroupSize, i32Ty);
-      }
-    }
-    entryIR.CreateCall(setMaxSubgroupSizeFn, {maxSubgroupSize});
-  }
 
   // Remap any constant expression which take a reference to the old function
   // FIXME: What about the main function?

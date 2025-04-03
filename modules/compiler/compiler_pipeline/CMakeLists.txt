@@ -35,7 +35,6 @@ add_ca_library(compiler-pipeline STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/utils/gdb_registration_listener.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/utils/group_collective_helpers.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/utils/link_builtins_pass.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/utils/llvm_global_mutex.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/utils/lower_to_mux_builtins_pass.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/utils/make_function_name_unique_pass.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/utils/manual_type_legalization_pass.h
@@ -85,7 +84,6 @@ add_ca_library(compiler-pipeline STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/source/gdb_registration_listener.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/group_collective_helpers.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/link_builtins_pass.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/source/llvm_global_mutex.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/lower_to_mux_builtins_pass.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/make_function_name_unique_pass.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/mangling.cpp

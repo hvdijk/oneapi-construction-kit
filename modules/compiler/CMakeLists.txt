@@ -44,7 +44,8 @@ if(CA_RUNTIME_COMPILER_ENABLED)
     ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/kernel.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/limits.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/module.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/target.h)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/target.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/compiler/utils/llvm_global_mutex.h)
 
   # Define the static compiler library.
   add_ca_library(compiler-static STATIC

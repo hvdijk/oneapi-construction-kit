@@ -55,6 +55,7 @@ set(COMPILER_BASE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/source/combine_fpext_fptrunc_pass.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/fast_math_pass.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/image_argument_substitution_pass.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/source/llvm_global_mutex.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/mem_to_reg_pass.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/pass_pipelines.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source/printf_replacement_pass.cpp

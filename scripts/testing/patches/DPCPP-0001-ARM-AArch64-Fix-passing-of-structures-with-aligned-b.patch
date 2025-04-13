@@ -1,0 +1,162 @@
+From 9580d5bcea1089c3d28899aaba9b9475869501dd Mon Sep 17 00:00:00 2001
+From: Harald van Dijk <harald.vandijk@codeplay.com>
+Date: Sun, 13 Apr 2025 21:47:54 +0100
+Subject: [PATCH] [ARM, AArch64] Fix passing of structures with aligned base
+ classes
+
+RecordLayout::UnadjustedAlignment was documented as "Maximum of the
+alignments of the record members in characters", but
+RecordLayout::getUnadjustedAlignment(), which just returns
+UnadjustedAlignment, was documented as getting "the record alignment in
+characters, before alignment adjustement." These are not the same thing:
+the former excludes alignment of base classes, the latter takes it into
+account. ItaniumRecordLayoutBuilder::LayoutBase was setting it according
+to the former, but the AAPCS calling convention handling, currently the
+only user, relies on it being set according to the latter.
+
+Fixes #135551.
+---
+ clang/include/clang/AST/RecordLayout.h      |  7 +--
+ clang/lib/AST/RecordLayoutBuilder.cpp       |  1 +
+ clang/test/CodeGen/aapcs64-align.cpp        | 57 +++++++++++++--------
+ clang/test/CodeGen/arm-vfp16-arguments2.cpp |  2 +-
+ 4 files changed, 42 insertions(+), 25 deletions(-)
+
+diff --git a/clang/include/clang/AST/RecordLayout.h b/clang/include/clang/AST/RecordLayout.h
+index dd18f9c49f84..6cf08e76396e 100644
+--- a/clang/include/clang/AST/RecordLayout.h
++++ b/clang/include/clang/AST/RecordLayout.h
+@@ -75,8 +75,9 @@ private:
+   // performance or backwards compatibility preserving (e.g. AIX-ABI).
+   CharUnits PreferredAlignment;
+ 
+-  // UnadjustedAlignment - Maximum of the alignments of the record members in
+-  // characters.
++  // UnadjustedAlignment - Alignment of record in characters before alignment
++  // adjustments. Maximum of the alignments of the record members and base
++  // classes in characters.
+   CharUnits UnadjustedAlignment;
+ 
+   /// RequiredAlignment - The required alignment of the object.  In the MS-ABI
+@@ -186,7 +187,7 @@ public:
+   CharUnits getPreferredAlignment() const { return PreferredAlignment; }
+ 
+   /// getUnadjustedAlignment - Get the record alignment in characters, before
+-  /// alignment adjustement.
++  /// alignment adjustment.
+   CharUnits getUnadjustedAlignment() const { return UnadjustedAlignment; }
+ 
+   /// getSize - Get the record size in characters.
+diff --git a/clang/lib/AST/RecordLayoutBuilder.cpp b/clang/lib/AST/RecordLayoutBuilder.cpp
+index 3e756ab9b9bf..b49bcd0e3ba4 100644
+--- a/clang/lib/AST/RecordLayoutBuilder.cpp
++++ b/clang/lib/AST/RecordLayoutBuilder.cpp
+@@ -1302,6 +1302,7 @@ ItaniumRecordLayoutBuilder::LayoutBase(const BaseSubobjectInfo *Base) {
+     setSize(std::max(getSize(), Offset + Layout.getSize()));
+ 
+   // Remember max struct/class alignment.
++  UnadjustedAlignment = std::max(UnadjustedAlignment, PreferredBaseAlign);
+   UpdateAlignment(BaseAlign, UnpackedAlignTo, PreferredBaseAlign);
+ 
+   return Offset;
+diff --git a/clang/test/CodeGen/aapcs64-align.cpp b/clang/test/CodeGen/aapcs64-align.cpp
+index e69faf231936..f9be94b8ec58 100644
+--- a/clang/test/CodeGen/aapcs64-align.cpp
++++ b/clang/test/CodeGen/aapcs64-align.cpp
+@@ -67,6 +67,21 @@ void g3() {
+ // CHECK: declare void @f3(i64 noundef, i128)
+ // CHECK: declare void @f3m(i64 noundef, i64 noundef, i64 noundef, i64 noundef, i64 noundef, i128)
+ 
++// Increased natural alignment through a base class.
++struct SB16 : S16 {};
++
++void f4(long, SB16);
++void f4m(long, long, long, long, long, SB16);
++void g4() {
++  SB16 s = {6, 7};
++  f4(1, s);
++  f4m(1, 2, 3, 4, 5, s);
++}
++// CHECK: define{{.*}} void @g4
++// CHECK: call void @f4(i64 noundef 1, i128 129127208515966861318)
++// CHECK: call void @f4m(i64 noundef 1, i64 noundef 2, i64 noundef 3, i64 noundef 4, i64 noundef 5, i128 129127208515966861318)
++// CHECK: declare void @f4(i64 noundef, i128)
++// CHECK: declare void @f4m(i64 noundef, i64 noundef, i64 noundef, i64 noundef, i64 noundef, i128)
+ 
+ // Packed structure.
+ struct  __attribute__((packed)) P {
+@@ -74,18 +89,18 @@ struct  __attribute__((packed)) P {
+   long u;
+ };
+ 
+-void f4(int, P);
+-void f4m(int, int, int, int, int, P);
+-void g4() {
++void f5(int, P);
++void f5m(int, int, int, int, int, P);
++void g5() {
+   P s = {6, 7};
+-  f4(1, s);
+-  f4m(1, 2, 3, 4, 5, s);
++  f5(1, s);
++  f5m(1, 2, 3, 4, 5, s);
+ }
+-// CHECK: define{{.*}} void @g4()
+-// CHECK: call void @f4(i32 noundef 1, [2 x i64] [i64 30064771078, i64 0])
+-// CHECK: void @f4m(i32 noundef 1, i32 noundef 2, i32 noundef 3, i32 noundef 4, i32 noundef 5, [2 x i64] [i64 30064771078, i64 0])
+-// CHECK: declare void @f4(i32 noundef, [2 x i64])
+-// CHECK: declare void @f4m(i32 noundef, i32 noundef, i32 noundef, i32 noundef, i32 noundef, [2 x i64])
++// CHECK: define{{.*}} void @g5()
++// CHECK: call void @f5(i32 noundef 1, [2 x i64] [i64 30064771078, i64 0])
++// CHECK: void @f5m(i32 noundef 1, i32 noundef 2, i32 noundef 3, i32 noundef 4, i32 noundef 5, [2 x i64] [i64 30064771078, i64 0])
++// CHECK: declare void @f5(i32 noundef, [2 x i64])
++// CHECK: declare void @f5m(i32 noundef, i32 noundef, i32 noundef, i32 noundef, i32 noundef, [2 x i64])
+ 
+ 
+ // Packed structure, overaligned, same as above.
+@@ -94,18 +109,18 @@ struct  __attribute__((packed, aligned(16))) P16 {
+   long y;
+ };
+ 
+-void f5(int, P16);
+-void f5m(int, int, int, int, int, P16);
+-  void g5() {
+-    P16 s = {6, 7};
+-    f5(1, s);
+-    f5m(1, 2, 3, 4, 5, s);
++void f6(int, P16);
++void f6m(int, int, int, int, int, P16);
++void g6() {
++  P16 s = {6, 7};
++  f6(1, s);
++  f6m(1, 2, 3, 4, 5, s);
+ }
+-// CHECK: define{{.*}} void @g5()
+-// CHECK: call void @f5(i32 noundef 1, [2 x i64] [i64 30064771078, i64 0])
+-// CHECK: void @f5m(i32 noundef 1, i32 noundef 2, i32 noundef 3, i32 noundef 4, i32 noundef 5, [2 x i64] [i64 30064771078, i64 0])
+-// CHECK: declare void @f5(i32 noundef, [2 x i64])
+-// CHECK: declare void @f5m(i32 noundef, i32 noundef, i32 noundef, i32 noundef, i32 noundef, [2 x i64])
++// CHECK: define{{.*}} void @g6()
++// CHECK: call void @f6(i32 noundef 1, [2 x i64] [i64 30064771078, i64 0])
++// CHECK: void @f6m(i32 noundef 1, i32 noundef 2, i32 noundef 3, i32 noundef 4, i32 noundef 5, [2 x i64] [i64 30064771078, i64 0])
++// CHECK: declare void @f6(i32 noundef, [2 x i64])
++// CHECK: declare void @f6m(i32 noundef, i32 noundef, i32 noundef, i32 noundef, i32 noundef, [2 x i64])
+ 
+ //BitInt alignment
+ struct BITINT129 {
+diff --git a/clang/test/CodeGen/arm-vfp16-arguments2.cpp b/clang/test/CodeGen/arm-vfp16-arguments2.cpp
+index 6e9a24e70c14..7273f64effa9 100644
+--- a/clang/test/CodeGen/arm-vfp16-arguments2.cpp
++++ b/clang/test/CodeGen/arm-vfp16-arguments2.cpp
+@@ -42,7 +42,7 @@ struct S5 : B1 {
+ // CHECK-FULL: define{{.*}} arm_aapcs_vfpcc %struct.S1 @_Z2f12S1(%struct.S1 returned %s1.coerce)
+ struct S1 f1(struct S1 s1) { return s1; }
+ 
+-// CHECK-SOFT: define{{.*}} void @_Z2f22S2(ptr dead_on_unwind noalias writable writeonly sret(%struct.S2) align 8 captures(none) initializes((0, 16)) %agg.result, [4 x i32] %s2.coerce)
++// CHECK-SOFT: define{{.*}} void @_Z2f22S2(ptr dead_on_unwind noalias writable writeonly sret(%struct.S2) align 8 captures(none) initializes((0, 16)) %agg.result, [2 x i64] %s2.coerce)
+ // CHECK-HARD: define{{.*}} arm_aapcs_vfpcc [2 x <2 x i32>] @_Z2f22S2([2 x <2 x i32>] returned %s2.coerce)
+ // CHECK-FULL: define{{.*}} arm_aapcs_vfpcc %struct.S2 @_Z2f22S2(%struct.S2 %s2.coerce)
+ struct S2 f2(struct S2 s2) { return s2; }
+-- 
+2.48.1
+

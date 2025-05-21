@@ -338,7 +338,6 @@ llvm::Expected<spirv_ll::DeviceInfo> getDeviceInfo(
           spv::CapabilityVariablePointersStorageBuffer,
       });
     }
-    deviceInfo.extInstImports.push_back("GLSL.std.450");
     deviceInfo.addressingModel = spv::AddressingModelLogical;
     deviceInfo.memoryModel = spv::MemoryModelGLSL450;
     if (bits == "32") {

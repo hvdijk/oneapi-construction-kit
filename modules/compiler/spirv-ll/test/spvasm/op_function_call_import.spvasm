@@ -20,7 +20,6 @@
 ; CHECK: ; ModuleID = '{{.*}}'
                OpCapability Shader
                OpCapability Linkage
-          %1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint GLCompute %main "main"
                OpExecutionMode %main LocalSize 1 1 1

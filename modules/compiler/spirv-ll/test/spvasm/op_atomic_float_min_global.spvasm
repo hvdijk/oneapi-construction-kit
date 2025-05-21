@@ -20,7 +20,6 @@
             OpCapability Shader
             OpCapability AtomicFloat32MinMaxEXT
             OpExtension "SPV_EXT_shader_atomic_float_min_max"
-       %1 = OpExtInstImport "GLSL.std.450"
             OpMemoryModel Logical GLSL450
             OpEntryPoint GLCompute %atomic "atomic"
             OpExecutionMode %atomic LocalSize 1 1 1

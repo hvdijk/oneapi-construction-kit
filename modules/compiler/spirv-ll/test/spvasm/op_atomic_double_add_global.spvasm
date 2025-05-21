@@ -21,7 +21,6 @@
             OpCapability Float64
             OpCapability AtomicFloat64AddEXT
             OpExtension "SPV_EXT_shader_atomic_float_add"
-       %1 = OpExtInstImport "GLSL.std.450"
             OpMemoryModel Logical GLSL450
             OpEntryPoint GLCompute %atomic "atomic"
             OpExecutionMode %atomic LocalSize 1 1 1

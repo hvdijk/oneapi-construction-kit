@@ -20,7 +20,7 @@
 from argparse import ArgumentParser
 from os.path import basename, join
 
-from modules import gen_glsl_files, gen_spvasm_files, gen_test_files
+from modules import gen_spvasm_files, gen_test_files
 
 
 def main():
@@ -28,7 +28,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument(
         'type',
-        choices=['glsl', 'spvasm', 'test'],
+        choices=['spvasm', 'test'],
         help='type of output to generate')
     parser.add_argument(
         '-o',
@@ -41,13 +41,7 @@ def main():
 
     args = parser.parse_args()
 
-    if args.type == 'glsl':
-        glsl_files = gen_glsl_files(args.output_dir)
-        with open(join(args.output_dir, args.type, 'glsl.cmake'),
-                  'w') as glsl_cmake_file:
-            glsl_cmake_file.write('set(GLSL_FILES\n  %s)\n' % '\n  '.join(
-                [basename(glsl) for glsl in glsl_files]))
-    elif args.type == 'spvasm':
+    if args.type == 'spvasm':
         spvasm_files = gen_spvasm_files(args)
         with open(join(args.output_dir, args.type, 'spvasm.cmake'),
                   'w') as spirv_cmake_file:

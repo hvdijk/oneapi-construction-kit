@@ -2001,12 +2001,6 @@ FUNCTION_MAPPINGS = {
     'Distance': '_Z8distance',
     'Cross': '_Z5cross',
     'Normalize': '_Z9normalize',
-    'FaceForward': '_Z21codeplay_face_forward',
-    'Reflect': '_Z16codeplay_reflect',
-    'Refract': '_Z16codeplay_refract',
-    'FindILsb': '_Z17codeplay_find_lsb',
-    'FindSMsb': '_Z17codeplay_find_msb',
-    'FindUMsb': '_Z17codeplay_find_msb',
     # Interpolation commands for fragment shaders only which are not supported
     'InterpolateAtCentroid': '',
     'InterpolateAtSample': '',

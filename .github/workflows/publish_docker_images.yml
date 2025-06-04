@@ -3,7 +3,7 @@ name: publish docker images
 on:
   push:
     branches:
-    - main
+    - test
     paths:
     - '.github/workflows/publish_docker_images.yml'
     - '.github/dockerfiles/**'
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  REGISTRY: ghcr.io/uxlfoundation
+  REGISTRY: ghcr.io/hvdijk
 
 jobs:
 

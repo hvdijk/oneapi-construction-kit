@@ -114,8 +114,6 @@ SYCL,Graph/RecordReplay/usm_fill.cpp,XFail
 SYCL,Graph/RecordReplay/usm_memset_shortcut.cpp,XFail
 SYCL,Graph/RecordReplay/usm_copy.cpp,XFail
 SYCL,Graph/RecordReplay/usm_fill_shared.cpp,XFail
-SYCL,HierPar/hier_par_basic.cpp,MayFail
-SYCL,HierPar/hier_par_wgscope_O0.cpp,MayFail
 SYCL,KernelCompiler/sycl.cpp,XFail
 SYCL,KernelCompiler/sycl_device_globals.cpp,XFail
 SYCL,KernelCompiler/sycl_cache.cpp,XFail

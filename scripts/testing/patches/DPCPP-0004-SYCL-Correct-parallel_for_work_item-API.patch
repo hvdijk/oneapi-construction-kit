@@ -1,0 +1,37 @@
+From 6f7c634fb77d1abaf59b169f7d596b5bdae707db Mon Sep 17 00:00:00 2001
+From: Harald van Dijk <harald.vandijk@codeplay.com>
+Date: Mon, 9 Jun 2025 23:24:43 +0100
+Subject: [PATCH] [SYCL] Correct parallel_for_work_item API.
+
+parallel_for_work_item is specified as taking the work item function by
+reference, and taking it by value results in instructions to copy the
+function that the LowerWGScope pass does not know how to handle.
+---
+ sycl/include/sycl/group.hpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sycl/include/sycl/group.hpp b/sycl/include/sycl/group.hpp
+index 50b5fe6e586a..679f30efe63b 100644
+--- a/sycl/include/sycl/group.hpp
++++ b/sycl/include/sycl/group.hpp
+@@ -177,7 +177,7 @@ public:
+   bool leader() const { return (get_local_linear_id() == 0); }
+ 
+   template <typename WorkItemFunctionT>
+-  void parallel_for_work_item(WorkItemFunctionT Func) const {
++  void parallel_for_work_item(const WorkItemFunctionT &Func) const {
+     // need barriers to enforce SYCL semantics for the work item loop -
+     // compilers are expected to optimize when possible
+     detail::workGroupBarrier();
+@@ -229,7 +229,7 @@ public:
+ 
+   template <typename WorkItemFunctionT>
+   void parallel_for_work_item(range<Dimensions> flexibleRange,
+-                              WorkItemFunctionT Func) const {
++                              const WorkItemFunctionT &Func) const {
+     detail::workGroupBarrier();
+ #ifdef __SYCL_DEVICE_ONLY__
+     range<Dimensions> GlobalSize{
+-- 
+2.47.2
+

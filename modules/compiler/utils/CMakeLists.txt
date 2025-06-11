@@ -53,19 +53,7 @@ if(LLD_FOUND)
 
   # Explicitly link against the individual static versions of the lld
   # libraries, see modules/compiler/source/base/CMakeLists.txt for details.
-  # LLD initializes all targets, even the ones we will not use, requiring
-  # us to also add their corresponding libraries.
-  set(LLVM_LIBS)
-  foreach(target IN LISTS LLVM_TARGETS_TO_BUILD)
-    foreach(lib IN LISTS LLVM_AVAILABLE_LIBS)
-      if(lib MATCHES "^LLVM${target}")
-        list(APPEND LLVM_LIBS "${lib}")
-      endif()
-    endforeach()
-  endforeach()
-  list(APPEND LLVM_LIBS LLVMGlobalISel LLVMMCDisassembler LLVMMIRParser
-    LLVMSelectionDAG LLVMipo LLVMAsmPrinter LLVMCodeGen)
-  set(LLD_LIBS lldELF lldCommon ${LLVM_LIBS})
+  set(LLD_LIBS lldELF lldCommon)
 
   if(NOT OCK_IN_LLVM_TREE)
     list(TRANSFORM LLD_LIBS PREPEND "${LLVM_LIBRARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}")

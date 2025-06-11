@@ -177,9 +177,9 @@ Expected<std::unique_ptr<MemoryBuffer>> lldLinkToBinary(
 
   std::string stderrStr;
   raw_string_ostream stderrOS(stderrStr);
-  const ::lld::Result s = ::lld::lldMain(lld_args, outs(), stderrOS,
-                                         {{::lld::Gnu, &lld::elf::link}});
-  const bool linkResult = !s.retCode && s.canRunAgain;
+  const bool linkResult =
+      ::lld::elf::link(lld_args, outs(), stderrOS,
+                       /*exitEarly=*/false, /*disableOutput=*/false);
   ::lld::CommonLinkerContext::destroy();
 
   if (!linkResult) {

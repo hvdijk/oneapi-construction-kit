@@ -1,0 +1,60 @@
+From 6727bd3339b487b520a600518882f09a12e7239c Mon Sep 17 00:00:00 2001
+From: Harald van Dijk <harald.vandijk@codeplay.com>
+Date: Tue, 17 Jun 2025 15:12:55 +0100
+Subject: [PATCH] [SYCL] Work around codegen issue with vectors-of-3
+
+Vectors of length 3 have an adjusted length of 4 where the last element
+is poison. Copying that poison element results in wrong code being
+generated. Avoid that by only copying the first 3 elements.
+---
+ sycl/include/sycl/detail/builtins/math_functions.inc | 12 +++++++++---
+ sycl/include/sycl/vector.hpp                         |  5 ++++-
+ 2 files changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/sycl/include/sycl/detail/builtins/math_functions.inc b/sycl/include/sycl/detail/builtins/math_functions.inc
+index 72a965c47e27..185d6b2a9cf4 100644
+--- a/sycl/include/sycl/detail/builtins/math_functions.inc
++++ b/sycl/include/sycl/detail/builtins/math_functions.inc
+@@ -254,9 +254,15 @@ auto builtin_delegate_ptr_impl(FuncTy F, PtrTy p, Ts... xs) {
+   detail::NON_SCALAR_ENABLER<SYCL_CONCAT(LESS_ONE(NUM_ARGS), _TEMPLATE_TYPE),  \
+                              PtrTy>                                            \
+   NAME(SYCL_CONCAT(LESS_ONE(NUM_ARGS), _TEMPLATE_TYPE_ARG), PtrTy p) {         \
+-    return bit_cast<detail::NON_SCALAR_ENABLER<                                \
+-        SYCL_CONCAT(LESS_ONE(NUM_ARGS), _TEMPLATE_TYPE), PtrTy>>(              \
+-        detail::NAME##_impl(SYCL_CONCAT(LESS_ONE(NUM_ARGS), _ARG), p));        \
++    auto From = detail::NAME##_impl(SYCL_CONCAT(LESS_ONE(NUM_ARGS), _ARG), p); \
++    using ToTy = detail::NON_SCALAR_ENABLER<                                   \
++        SYCL_CONCAT(LESS_ONE(NUM_ARGS), _TEMPLATE_TYPE), PtrTy>;               \
++    ToTy To;                                                                   \
++    /* For vectors of length 3, make sure to only copy 3 elements, not 4, to   \
++       work around code generation issues. */                                  \
++    constexpr auto N = ToTy::size() * sizeof(detail::get_elem_type_t<ToTy>);   \
++    sycl::detail::memcpy_no_adl(&To, &From, N);                                \
++    return To;                                                                 \
+   }
+ 
+ #if __SYCL_DEVICE_ONLY__
+diff --git a/sycl/include/sycl/vector.hpp b/sycl/include/sycl/vector.hpp
+index 2e2f9e7613e8..8d0a14b49bb8 100644
+--- a/sycl/include/sycl/vector.hpp
++++ b/sycl/include/sycl/vector.hpp
+@@ -527,12 +527,15 @@ public:
+   // `vector_t` is the same as `DataT`. Not that the other ctor isn't a template
+   // so we don't even need a smart `enable_if` condition here, the mere fact of
+   // this being a template makes the other ctor preferred.
++  // For vectors of length 3, make sure to only copy 3 elements, not 4, to work
++  // around code generation issues.
+   template <
+       typename vector_t_ = vector_t,
+       typename = typename std::enable_if_t<std::is_same_v<vector_t_, vector_t>>>
+   constexpr vec(vector_t_ openclVector) {
+     sycl::detail::memcpy_no_adl(&this->m_Data, &openclVector,
+-                                sizeof(openclVector));
++                                NumElements *
++                                    sizeof(element_type_for_vector_t));
+   }
+ 
+   /* @SYCL2020
+-- 
+2.47.2
+

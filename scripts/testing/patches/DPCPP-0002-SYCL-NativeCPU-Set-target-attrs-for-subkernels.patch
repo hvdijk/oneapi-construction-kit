@@ -1,0 +1,38 @@
+From 05879d827b60f71702fc809aff74312d8b3172ce Mon Sep 17 00:00:00 2001
+From: Harald van Dijk <harald.vandijk@codeplay.com>
+Date: Thu, 26 Jun 2025 11:28:55 +0100
+Subject: [PATCH] [SYCL][NativeCPU] Set target attrs for subkernels.
+
+This fixes LLVMIntrinsicLowering/intrinsic_cmp.cpp with -mavx.
+
+Target attributes can affect the ABI, and the subkernel and kernel need
+to agree on the ABI in order for the call to work.
+---
+ llvm/lib/SYCLNativeCPUUtils/PrepareSYCLNativeCPU.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/llvm/lib/SYCLNativeCPUUtils/PrepareSYCLNativeCPU.cpp b/llvm/lib/SYCLNativeCPUUtils/PrepareSYCLNativeCPU.cpp
+index 8c5de52f0ec8..fa68506218c8 100644
+--- a/llvm/lib/SYCLNativeCPUUtils/PrepareSYCLNativeCPU.cpp
++++ b/llvm/lib/SYCLNativeCPUUtils/PrepareSYCLNativeCPU.cpp
+@@ -114,10 +114,16 @@ void emitSubkernelForKernel(Function *F, Type *NativeCPUArgDescType,
+ 
+   fixCallingConv(F);
+   fixCallingConv(SubhF);
+-  // Add sycl-module-id attribute
++  // Add sycl-module-id and target attributes
+   // Todo: we may want to copy other attributes to the subhandler,
+   // but we can't simply use setAttributes(F->getAttributes) since
+   // the function signatures are different
++  if (F->hasFnAttribute("target-features")) {
++    SubhF->addFnAttr(F->getFnAttribute("target-features"));
++  }
++  if (F->hasFnAttribute("target-cpu")) {
++    SubhF->addFnAttr(F->getFnAttribute("target-cpu"));
++  }
+   if (F->hasFnAttribute(sycl::utils::ATTR_SYCL_MODULE_ID)) {
+     Attribute MId = F->getFnAttribute(sycl::utils::ATTR_SYCL_MODULE_ID);
+     SubhF->addFnAttr("sycl-module-id", MId.getValueAsString());
+-- 
+2.47.2
+

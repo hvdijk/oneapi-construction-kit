@@ -1,0 +1,98 @@
+From 2559e3e256e306f3f519cf82cadad19e61aa44de Mon Sep 17 00:00:00 2001
+From: Harald van Dijk <harald.vandijk@codeplay.com>
+Date: Tue, 17 Jun 2025 15:12:55 +0100
+Subject: [PATCH] [SYCL] Work around codegen issue with vectors-of-3
+
+Vectors of length 3 have an adjusted length of 4 where the last element
+is poison. Copying that poison element results in wrong code being
+generated. Avoid that by only copying the first 3 elements.
+---
+ .../sycl/detail/builtins/helper_macros.hpp      | 17 +++++++++++++++--
+ .../sycl/detail/builtins/math_functions.inc     | 16 +++++++++++++---
+ sycl/include/sycl/vector.hpp                    |  5 ++++-
+ 3 files changed, 32 insertions(+), 6 deletions(-)
+
+diff --git a/sycl/include/sycl/detail/builtins/helper_macros.hpp b/sycl/include/sycl/detail/builtins/helper_macros.hpp
+index 1f83870c5b70..3b320d4e0772 100644
+--- a/sycl/include/sycl/detail/builtins/helper_macros.hpp
++++ b/sycl/include/sycl/detail/builtins/helper_macros.hpp
+@@ -192,13 +192,26 @@
+   template <NUM_ARGS##_TYPENAME_TYPE>                                          \
+   detail::ENABLER<NUM_ARGS##_TEMPLATE_TYPE>(NAME)(                             \
+       NUM_ARGS##_TEMPLATE_TYPE_ARG) {                                          \
++    using ToTy = detail::ENABLER<NUM_ARGS##_TEMPLATE_TYPE>;                    \
+     if constexpr (detail::is_marray_v<T0>) {                                   \
+       return detail::DELEGATOR(                                                \
+           [](NUM_ARGS##_AUTO_ARG) { return (NS::NAME)(NUM_ARGS##_ARG); },      \
+           NUM_ARGS##_ARG);                                                     \
++    } else if constexpr (detail::is_vec_v<ToTy>) {                             \
++      if constexpr (ToTy::size() == 3) {                                       \
++        /* For vectors of length 3, make sure to only copy 3 elements, not 4,  \
++           to work around code generation issues, see LLVM #144454. */         \
++        auto From = __VA_ARGS__(NUM_ARGS##_CONVERTED_ARG);                     \
++        ToTy To;                                                               \
++        constexpr auto N =                                                     \
++            ToTy::size() * sizeof(detail::get_elem_type_t<ToTy>);              \
++        sycl::detail::memcpy_no_adl(&To, &From, N);                            \
++        return To;                                                             \
++      } else {                                                                 \
++        return bit_cast<ToTy>(__VA_ARGS__(NUM_ARGS##_CONVERTED_ARG));          \
++      }                                                                        \
+     } else {                                                                   \
+-      return bit_cast<detail::ENABLER<NUM_ARGS##_TEMPLATE_TYPE>>(              \
+-          __VA_ARGS__(NUM_ARGS##_CONVERTED_ARG));                              \
++      return bit_cast<ToTy>(__VA_ARGS__(NUM_ARGS##_CONVERTED_ARG));            \
+     }                                                                          \
+   }
+ 
+diff --git a/sycl/include/sycl/detail/builtins/math_functions.inc b/sycl/include/sycl/detail/builtins/math_functions.inc
+index 72a965c47e27..8387fe09e6b6 100644
+--- a/sycl/include/sycl/detail/builtins/math_functions.inc
++++ b/sycl/include/sycl/detail/builtins/math_functions.inc
+@@ -254,9 +254,19 @@ auto builtin_delegate_ptr_impl(FuncTy F, PtrTy p, Ts... xs) {
+   detail::NON_SCALAR_ENABLER<SYCL_CONCAT(LESS_ONE(NUM_ARGS), _TEMPLATE_TYPE),  \
+                              PtrTy>                                            \
+   NAME(SYCL_CONCAT(LESS_ONE(NUM_ARGS), _TEMPLATE_TYPE_ARG), PtrTy p) {         \
+-    return bit_cast<detail::NON_SCALAR_ENABLER<                                \
+-        SYCL_CONCAT(LESS_ONE(NUM_ARGS), _TEMPLATE_TYPE), PtrTy>>(              \
+-        detail::NAME##_impl(SYCL_CONCAT(LESS_ONE(NUM_ARGS), _ARG), p));        \
++    auto From = detail::NAME##_impl(SYCL_CONCAT(LESS_ONE(NUM_ARGS), _ARG), p); \
++    using ToTy = detail::NON_SCALAR_ENABLER<                                   \
++        SYCL_CONCAT(LESS_ONE(NUM_ARGS), _TEMPLATE_TYPE), PtrTy>;               \
++    if constexpr (ToTy::size() == 3) {                                         \
++      /* For vectors of length 3, make sure to only copy 3 elements, not 4, to \
++         work around code generation issues, see LLVM #144454. */              \
++      ToTy To;                                                                 \
++      constexpr auto N = ToTy::size() * sizeof(detail::get_elem_type_t<ToTy>); \
++      sycl::detail::memcpy_no_adl(&To, &From, N);                              \
++      return To;                                                               \
++    } else {                                                                   \
++      return bit_cast<ToTy>(From);                                             \
++    }                                                                          \
+   }
+ 
+ #if __SYCL_DEVICE_ONLY__
+diff --git a/sycl/include/sycl/vector.hpp b/sycl/include/sycl/vector.hpp
+index 2e2f9e7613e8..80b6bd8132e7 100644
+--- a/sycl/include/sycl/vector.hpp
++++ b/sycl/include/sycl/vector.hpp
+@@ -527,12 +527,15 @@ public:
+   // `vector_t` is the same as `DataT`. Not that the other ctor isn't a template
+   // so we don't even need a smart `enable_if` condition here, the mere fact of
+   // this being a template makes the other ctor preferred.
++  // For vectors of length 3, make sure to only copy 3 elements, not 4, to work
++  // around code generation issues, see LLVM #144454.
+   template <
+       typename vector_t_ = vector_t,
+       typename = typename std::enable_if_t<std::is_same_v<vector_t_, vector_t>>>
+   constexpr vec(vector_t_ openclVector) {
+     sycl::detail::memcpy_no_adl(&this->m_Data, &openclVector,
+-                                sizeof(openclVector));
++                                NumElements *
++                                    sizeof(element_type_for_vector_t));
+   }
+ 
+   /* @SYCL2020
+-- 
+2.47.2
+

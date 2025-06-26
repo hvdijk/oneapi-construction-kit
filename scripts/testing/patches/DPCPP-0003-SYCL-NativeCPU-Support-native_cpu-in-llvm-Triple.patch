@@ -1,0 +1,543 @@
+From a0734753d1e2fecb2a00b42918db44127d97835a Mon Sep 17 00:00:00 2001
+From: Harald van Dijk <harald.vandijk@codeplay.com>
+Date: Mon, 2 Jun 2025 12:23:06 +0100
+Subject: [PATCH] [SYCL][NativeCPU] Support native_cpu in llvm::Triple.
+
+The initial design of NativeCPU limited it to Clang for ease of
+maintenance, but upcoming changes will require knowledge of NativeCPU in
+the LLVM parts, which changes what is easiest to maintain.
+---
+ clang/lib/Basic/Targets.cpp                   |  7 +++----
+ clang/lib/Driver/Driver.cpp                   | 21 +++++++++++--------
+ clang/lib/Driver/OffloadBundler.cpp           |  3 +--
+ clang/lib/Driver/ToolChains/Clang.cpp         | 15 +++++++------
+ clang/lib/Driver/ToolChains/SYCL.cpp          | 10 ++++-----
+ clang/lib/Driver/ToolChains/SYCL.h            |  9 ++------
+ .../ClangLinkerWrapper.cpp                    | 17 ++++++++-------
+ .../clang-offload-deps/ClangOffloadDeps.cpp   |  5 ++---
+ .../ClangOffloadWrapper.cpp                   |  2 +-
+ llvm/include/llvm/TargetParser/Triple.h       |  4 ++++
+ llvm/lib/TargetParser/Triple.cpp              | 13 ++++++++++++
+ llvm/unittests/TargetParser/TripleTest.cpp    | 20 ++++++++++++++++++
+ 12 files changed, 79 insertions(+), 47 deletions(-)
+
+diff --git a/clang/lib/Basic/Targets.cpp b/clang/lib/Basic/Targets.cpp
+index dca4a00768e5..abf264ba49ca 100644
+--- a/clang/lib/Basic/Targets.cpp
++++ b/clang/lib/Basic/Targets.cpp
+@@ -119,10 +119,6 @@ std::unique_ptr<TargetInfo> AllocateTarget(const llvm::Triple &Triple,
+     return nullptr;
+ 
+   case llvm::Triple::UnknownArch:
+-    // native_cpu is only known to Clang, not to LLVM.
+-    if (Triple.str() == "native_cpu")
+-      return std::make_unique<NativeCPUTargetInfo>(Triple, Opts);
+-
+     return nullptr;
+ 
+   case llvm::Triple::arc:
+@@ -843,6 +839,9 @@ std::unique_ptr<TargetInfo> AllocateTarget(const llvm::Triple &Triple,
+ 
+   case llvm::Triple::xtensa:
+     return std::make_unique<XtensaTargetInfo>(Triple, Opts);
++
++  case llvm::Triple::native_cpu:
++    return std::make_unique<NativeCPUTargetInfo>(Triple, Opts);
+   }
+ }
+ } // namespace targets
+diff --git a/clang/lib/Driver/Driver.cpp b/clang/lib/Driver/Driver.cpp
+index e1b29cdab712..b43e7851a0d2 100644
+--- a/clang/lib/Driver/Driver.cpp
++++ b/clang/lib/Driver/Driver.cpp
+@@ -976,7 +976,10 @@ static bool isValidSYCLTriple(llvm::Triple T) {
+     return true;
+ 
+   // 'native_cpu' is valid for Native CPU.
+-  if (isSYCLNativeCPU(T))
++  // TODO This checks for the exact spelling of the triple because other
++  // spellings would fail confusingly, trying to find nonexistent builtins. This
++  // should probably be done for NVidia and AMD too.
++  if (T.isNativeCPU() && T.str() == "native_cpu")
+     return true;
+ 
+   // Check for invalid SYCL device triple values.
+@@ -5566,7 +5569,7 @@ class OffloadingActionBuilder final {
+       auto IsAMDGCN = TargetTriple.isAMDGCN();
+       auto IsSPIR = TargetTriple.isSPIROrSPIRV();
+       bool IsSpirvAOT = TargetTriple.isSPIRAOT();
+-      bool IsSYCLNativeCPU = isSYCLNativeCPU(TargetTriple);
++      bool IsNativeCPU = TargetTriple.isNativeCPU();
+       for (const auto &Input : ListIndex) {
+         // No need for any conversion if we are coming in from the
+         // clang-offload-deps or regular compilation path.
+@@ -5706,7 +5709,7 @@ class OffloadingActionBuilder final {
+         // AOT compilation.
+         bool SYCLDeviceLibLinked = false;
+         Action *NativeCPULib = nullptr;
+-        if (IsSPIR || IsNVPTX || IsAMDGCN || IsSYCLNativeCPU) {
++        if (IsSPIR || IsNVPTX || IsAMDGCN || IsNativeCPU) {
+           bool UseJitLink =
+               IsSPIR &&
+               Args.hasFlag(options::OPT_fsycl_device_lib_jit_link,
+@@ -5715,7 +5718,7 @@ class OffloadingActionBuilder final {
+           SYCLDeviceLibLinked = addSYCLDeviceLibs(
+               TC, SYCLDeviceLibs, UseAOTLink,
+               C.getDefaultToolChain().getTriple().isWindowsMSVCEnvironment(),
+-              IsSYCLNativeCPU, NativeCPULib, BoundArch);
++              IsNativeCPU, NativeCPULib, BoundArch);
+         }
+         JobAction *LinkSYCLLibs =
+             C.MakeAction<LinkJobAction>(SYCLDeviceLibs, types::TY_LLVM_BC);
+@@ -5782,11 +5785,11 @@ class OffloadingActionBuilder final {
+ 
+           // reflects whether current target is ahead-of-time and can't
+           // support runtime setting of specialization constants
+-          bool IsAOT = IsNVPTX || IsAMDGCN || IsSpirvAOT || IsSYCLNativeCPU;
++          bool IsAOT = IsNVPTX || IsAMDGCN || IsSpirvAOT || IsNativeCPU;
+ 
+           // post link is not optional - even if not splitting, always need to
+           // process specialization constants
+-          types::ID PostLinkOutType = IsSPIR || IsSYCLNativeCPU
++          types::ID PostLinkOutType = IsSPIR || IsNativeCPU
+                                           ? types::TY_Tempfiletable
+                                           : types::TY_LLVM_BC;
+           auto createPostLinkAction = [&]() {
+@@ -5797,7 +5800,7 @@ class OffloadingActionBuilder final {
+             return TypedPostLinkAction;
+           };
+           Action *PostLinkAction = createPostLinkAction();
+-          if (IsSYCLNativeCPU) {
++          if (IsNativeCPU) {
+             if (NativeCPULib) {
+               // The native cpu device lib is linked without --only-needed
+               // as it contains builtins not referenced in source code but
+@@ -9140,7 +9143,7 @@ InputInfoList Driver::BuildJobsForActionNoCache(
+       Action::OffloadKind DependentOffloadKind;
+       if (UI.DependentOffloadKind == Action::OFK_SYCL &&
+           TargetDeviceOffloadKind == Action::OFK_None &&
+-          !(isSYCLNativeCPU(C.getDefaultToolChain().getTriple()) &&
++          !(C.getDefaultToolChain().getTriple().isNativeCPU() &&
+             UA->getDependentActionsInfo().size() > 1))
+         DependentOffloadKind = Action::OFK_Host;
+       else
+@@ -10037,7 +10040,7 @@ const ToolChain &Driver::getOffloadToolChain(
+                                                            *HostTC, Args, Kind);
+       break;
+     default:
+-      if (Kind == Action::OFK_SYCL && isSYCLNativeCPU(Target))
++      if (Kind == Action::OFK_SYCL && Target.isNativeCPU())
+         TC = std::make_unique<toolchains::SYCLToolChain>(*this, Target, *HostTC,
+                                                          Args);
+       break;
+diff --git a/clang/lib/Driver/OffloadBundler.cpp b/clang/lib/Driver/OffloadBundler.cpp
+index df4bd8889e67..07b21dc5558c 100644
+--- a/clang/lib/Driver/OffloadBundler.cpp
++++ b/clang/lib/Driver/OffloadBundler.cpp
+@@ -178,8 +178,7 @@ bool OffloadTargetInfo::isOffloadKindCompatible(
+ }
+ 
+ bool OffloadTargetInfo::isTripleValid() const {
+-  return !Triple.str().empty() && (Triple.getArch() != Triple::UnknownArch ||
+-                                   Triple.str() == "native_cpu---");
++  return !Triple.str().empty() && Triple.getArch() != Triple::UnknownArch;
+ }
+ 
+ bool OffloadTargetInfo::operator==(const OffloadTargetInfo &Target) const {
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index 40c4d78af65b..f439c3a7aaf9 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -5560,8 +5560,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
+   // Adjust for SYCL NativeCPU compilations.  When compiling in device mode, the
+   // first compilation uses the NativeCPU target for LLVM IR generation, the
+   // second compilation uses the host target for machine code generation.
+-  const bool IsSYCLNativeCPU = isSYCLNativeCPU(Triple);
+-  if (IsSYCL && IsSYCLDevice && IsSYCLNativeCPU && AuxTriple &&
++  if (IsSYCL && IsSYCLDevice && Triple.isNativeCPU() && AuxTriple &&
+       isa<AssembleJobAction>(JA)) {
+     Triple = *AuxTriple;
+     TripleStr = Triple.getTriple();
+@@ -5696,7 +5695,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
+         CmdArgs.push_back("-mllvm");
+         CmdArgs.push_back("-sycl-opt");
+       }
+-      if (IsSYCLNativeCPU) {
++      if (RawTriple.isNativeCPU()) {
+         CmdArgs.push_back("-fsycl-is-native-cpu");
+         CmdArgs.push_back("-D");
+         CmdArgs.push_back("__SYCL_NATIVE_CPU__");
+@@ -6077,14 +6076,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
+         CmdArgs.push_back("-fdirectives-only");
+     }
+   } else if (isa<AssembleJobAction>(JA)) {
+-    if (IsSYCLDevice && !IsSYCLNativeCPU) {
++    if (IsSYCLDevice && !RawTriple.isNativeCPU()) {
+       CmdArgs.push_back("-emit-llvm-bc");
+     } else {
+       CmdArgs.push_back("-emit-obj");
+       CollectArgsForIntegratedAssembler(C, Args, CmdArgs, D);
+     }
+-    if (IsSYCLDevice && IsSYCLNativeCPU) {
+-      // NativeCPU generates an initial LLVM module for an unknown target, then
++    if (IsSYCLDevice && RawTriple.isNativeCPU()) {
++      // NativeCPU generates an initial LLVM module for a dummy target, then
+       // compiles that for host. Avoid generating a warning for that.
+       CmdArgs.push_back("-Wno-override-module");
+       CmdArgs.push_back("-mllvm");
+@@ -10886,7 +10885,7 @@ static bool shouldEmitOnlyKernelsAsEntryPoints(const ToolChain &TC,
+   if (TCArgs.hasFlag(options::OPT_fno_sycl_remove_unused_external_funcs,
+                      options::OPT_fsycl_remove_unused_external_funcs, false))
+     return false;
+-  if (isSYCLNativeCPU(Triple))
++  if (Triple.isNativeCPU())
+     return true;
+   // When supporting dynamic linking, non-kernels in a device image can be
+   // called.
+@@ -10944,7 +10943,7 @@ static void getTripleBasedSYCLPostLinkOpts(const ToolChain &TC,
+   if (!Triple.isAMDGCN())
+     addArgs(PostLinkArgs, TCArgs, {"-emit-param-info"});
+   // Enable program metadata
+-  if (Triple.isNVPTX() || Triple.isAMDGCN() || isSYCLNativeCPU(Triple))
++  if (Triple.isNVPTX() || Triple.isAMDGCN() || Triple.isNativeCPU())
+     addArgs(PostLinkArgs, TCArgs, {"-emit-program-metadata"});
+   if (OutputType != types::TY_LLVM_BC) {
+     assert(OutputType == types::TY_Tempfiletable);
+diff --git a/clang/lib/Driver/ToolChains/SYCL.cpp b/clang/lib/Driver/ToolChains/SYCL.cpp
+index 459dfc5d8771..ef7d07e92128 100644
+--- a/clang/lib/Driver/ToolChains/SYCL.cpp
++++ b/clang/lib/Driver/ToolChains/SYCL.cpp
+@@ -762,7 +762,7 @@ SYCL::getDeviceLibraries(const Compilation &C, const llvm::Triple &TargetTriple,
+     addSingleLibrary(SYCLDeviceTsanLibs[sanitizer_lib_idx]);
+ #endif
+ 
+-  if (isSYCLNativeCPU(TargetTriple))
++  if (TargetTriple.isNativeCPU())
+     addLibraries(SYCLNativeCpuDeviceLibs);
+ 
+   return LibraryList;
+@@ -940,7 +940,7 @@ const char *SYCL::Linker::constructLLVMLinkCommand(
+       const bool IsNVPTX = this->getToolChain().getTriple().isNVPTX();
+       const bool IsAMDGCN = this->getToolChain().getTriple().isAMDGCN();
+       const bool IsSYCLNativeCPU =
+-          isSYCLNativeCPU(this->getToolChain().getTriple());
++          this->getToolChain().getTriple().isNativeCPU();
+       StringRef LibPostfix = ".bc";
+       StringRef NewLibPostfix = ".new.o";
+       if (HostTC->getTriple().isWindowsMSVCEnvironment() &&
+@@ -1084,7 +1084,7 @@ void SYCL::Linker::ConstructJob(Compilation &C, const JobAction &JA,
+   assert((getToolChain().getTriple().isSPIROrSPIRV() ||
+           getToolChain().getTriple().isNVPTX() ||
+           getToolChain().getTriple().isAMDGCN() ||
+-          isSYCLNativeCPU(getToolChain().getTriple())) &&
++          getToolChain().getTriple().isNativeCPU()) &&
+          "Unsupported target");
+ 
+   std::string SubArchName =
+@@ -1476,7 +1476,7 @@ static ArrayRef<options::ID> getUnsupportedOpts() {
+ // Currently supported options by SYCL NativeCPU device compilation
+ static inline bool SupportedByNativeCPU(const llvm::Triple &Triple,
+                                         const OptSpecifier &Opt) {
+-  if (!isSYCLNativeCPU(Triple))
++  if (!Triple.isNativeCPU())
+     return false;
+ 
+   switch (Opt.getID()) {
+@@ -1925,7 +1925,7 @@ Tool *SYCLToolChain::buildBackendCompiler() const {
+ }
+ 
+ Tool *SYCLToolChain::buildLinker() const {
+-  assert(getTriple().isSPIROrSPIRV() || isSYCLNativeCPU(getTriple()));
++  assert(getTriple().isSPIROrSPIRV() || getTriple().isNativeCPU());
+   return new tools::SYCL::Linker(*this);
+ }
+ 
+diff --git a/clang/lib/Driver/ToolChains/SYCL.h b/clang/lib/Driver/ToolChains/SYCL.h
+index 234876aec98c..6d7df788fa0a 100644
+--- a/clang/lib/Driver/ToolChains/SYCL.h
++++ b/clang/lib/Driver/ToolChains/SYCL.h
+@@ -245,11 +245,6 @@ public:
+ } // end namespace SYCL
+ } // end namespace tools
+ 
+-inline bool isSYCLNativeCPU(const llvm::Triple &Triple) {
+-  return Triple.getArch() == llvm::Triple::UnknownArch &&
+-         Triple.str() == "native_cpu";
+-}
+-
+ namespace toolchains {
+ 
+ class LLVM_LIBRARY_VISIBILITY SYCLToolChain : public ToolChain {
+@@ -290,12 +285,12 @@ public:
+ 
+   bool useIntegratedAs() const override { return true; }
+   bool isPICDefault() const override {
+-    if (isSYCLNativeCPU(this->getTriple()))
++    if (this->getTriple().isNativeCPU())
+       return this->HostTC.isPICDefault();
+     return false;
+   }
+   llvm::codegenoptions::DebugInfoFormat getDefaultDebugFormat() const override {
+-    if (isSYCLNativeCPU(this->getTriple()) &&
++    if (this->getTriple().isNativeCPU() &&
+         this->HostTC.getTriple().isWindowsMSVCEnvironment())
+       return this->HostTC.getDefaultDebugFormat();
+     return ToolChain::getDefaultDebugFormat();
+diff --git a/clang/tools/clang-linker-wrapper/ClangLinkerWrapper.cpp b/clang/tools/clang-linker-wrapper/ClangLinkerWrapper.cpp
+index 2000efbad203..119229357849 100644
+--- a/clang/tools/clang-linker-wrapper/ClangLinkerWrapper.cpp
++++ b/clang/tools/clang-linker-wrapper/ClangLinkerWrapper.cpp
+@@ -648,9 +648,8 @@ getTripleBasedSYCLPostLinkOpts(const ArgList &Args,
+                                SmallVector<StringRef, 8> &PostLinkArgs,
+                                const llvm::Triple Triple) {
+   const llvm::Triple HostTriple(Args.getLastArgValue(OPT_host_triple_EQ));
+-  bool SYCLNativeCPU = Triple.str() == "native_cpu";
+   bool SpecConstsSupported = (!Triple.isNVPTX() && !Triple.isAMDGCN() &&
+-                              !Triple.isSPIRAOT() && !SYCLNativeCPU);
++                              !Triple.isSPIRAOT() && !Triple.isNativeCPU());
+   if (SpecConstsSupported)
+     PostLinkArgs.push_back("-spec-const=native");
+   else
+@@ -677,7 +676,7 @@ getTripleBasedSYCLPostLinkOpts(const ArgList &Args,
+   // TODO: Try to extend this feature for non-Intel GPUs.
+   if ((!Args.hasFlag(OPT_no_sycl_remove_unused_external_funcs,
+                      OPT_sycl_remove_unused_external_funcs, false) &&
+-       !SYCLNativeCPU) &&
++       !Triple.isNativeCPU()) &&
+       !Args.hasArg(OPT_sycl_allow_device_image_dependencies) &&
+       !Triple.isNVPTX() && !Triple.isAMDGPU())
+     PostLinkArgs.push_back("-emit-only-kernels-as-entry-points");
+@@ -685,7 +684,7 @@ getTripleBasedSYCLPostLinkOpts(const ArgList &Args,
+   if (!Triple.isAMDGCN())
+     PostLinkArgs.push_back("-emit-param-info");
+   // Enable program metadata
+-  if (Triple.isNVPTX() || Triple.isAMDGCN() || SYCLNativeCPU)
++  if (Triple.isNVPTX() || Triple.isAMDGCN() || Triple.isNativeCPU())
+     PostLinkArgs.push_back("-emit-program-metadata");
+ 
+   bool SplitEsimdByDefault = Triple.isSPIROrSPIRV();
+@@ -1568,7 +1567,7 @@ Expected<StringRef> clang(ArrayRef<StringRef> InputFiles, const ArgList &Args,
+     return ClangPath.takeError();
+ 
+   llvm::Triple Triple(Args.getLastArgValue(OPT_triple_EQ));
+-  if (Triple.str() == "native_cpu")
++  if (Triple.isNativeCPU())
+     Triple = llvm::Triple(Args.getLastArgValue(OPT_host_triple_EQ));
+ 
+   StringRef Arch = Args.getLastArgValue(OPT_arch_EQ);
+@@ -1722,10 +1721,12 @@ Expected<StringRef> linkDevice(ArrayRef<StringRef> InputFiles,
+   }
+   case Triple::loongarch64:
+     return generic::clang(InputFiles, Args, IsSYCLKind);
+-  default:
+-    if (Triple.str() == "native_cpu" && IsSYCLKind)
++  case Triple::native_cpu:
++    if (IsSYCLKind)
+       return generic::clang(InputFiles, Args, IsSYCLKind);
+-
++    return createStringError(Triple.getArchName() +
++                             " linking is not supported other than for SYCL");
++  default:
+     return createStringError(Triple.getArchName() +
+                              " linking is not supported");
+   }
+diff --git a/clang/tools/clang-offload-deps/ClangOffloadDeps.cpp b/clang/tools/clang-offload-deps/ClangOffloadDeps.cpp
+index 42593433544a..6dbe9a1f24e6 100644
+--- a/clang/tools/clang-offload-deps/ClangOffloadDeps.cpp
++++ b/clang/tools/clang-offload-deps/ClangOffloadDeps.cpp
+@@ -120,8 +120,7 @@ int main(int argc, const char **argv) {
+                            .Case("fpga", true)
+                            .Default(false);
+ 
+-    bool TripleIsValid = Triple(Triples[I]).getArch() != Triple::UnknownArch ||
+-                         Triples[I] == "native_cpu";
++    bool TripleIsValid = Triple(Triples[I]).getArch() != Triple::UnknownArch;
+ 
+     if (!KindIsValid || !TripleIsValid) {
+       SmallVector<char, 128u> Buf;
+@@ -212,7 +211,7 @@ int main(int argc, const char **argv) {
+       // global variable llvm.used to represent a reference to a symbol. But for
+       // other targets we have to create a real reference since llvm.used may
+       // not be representable in the object file.
+-      if (Triples[I] == "native_cpu") {
++      if (Triple(Triples[I]).isNativeCPU()) {
+         // SYCL Native CPU doesn't need deps from clang-offload-deps.
+       } else if (Kinds[I] == "sycl" || Triple(Triples[I]).isSPIR()) {
+         auto *GV = new GlobalVariable(
+diff --git a/clang/tools/clang-offload-wrapper/ClangOffloadWrapper.cpp b/clang/tools/clang-offload-wrapper/ClangOffloadWrapper.cpp
+index c46eebefb6fe..d5209ae1baab 100644
+--- a/clang/tools/clang-offload-wrapper/ClangOffloadWrapper.cpp
++++ b/clang/tools/clang-offload-wrapper/ClangOffloadWrapper.cpp
+@@ -1101,7 +1101,7 @@ private:
+         Bin = addELFNotes(Bin, Img.File);
+       }
+       std::pair<Constant *, Constant *> Fbin;
+-      if (Img.Tgt == "native_cpu") {
++      if (Triple(Img.Tgt).isNativeCPU()) {
+         auto FBinOrErr = addDeclarationsForNativeCPU(Img.EntriesFile);
+         if (!FBinOrErr)
+           return FBinOrErr.takeError();
+diff --git a/llvm/include/llvm/TargetParser/Triple.h b/llvm/include/llvm/TargetParser/Triple.h
+index dd4cf38e01b4..3142cafe28b4 100644
+--- a/llvm/include/llvm/TargetParser/Triple.h
++++ b/llvm/include/llvm/TargetParser/Triple.h
+@@ -105,6 +105,7 @@ public:
+     renderscript32, // 32-bit RenderScript
+     renderscript64, // 64-bit RenderScript
+     fpga,           // Intel FPGA
++    native_cpu,     // Native CPU
+     ve,             // NEC SX-Aurora Vector Engine
+     LastArchType = ve
+   };
+@@ -1087,6 +1088,9 @@ public:
+     return getArch() == Triple::csky;
+   }
+ 
++  /// Tests whether the target is Native CPU.
++  bool isNativeCPU() const { return getArch() == Triple::native_cpu; }
++
+   /// Tests whether the target is the Apple "arm64e" AArch64 subarch.
+   bool isArm64e() const {
+     return getArch() == Triple::aarch64 &&
+diff --git a/llvm/lib/TargetParser/Triple.cpp b/llvm/lib/TargetParser/Triple.cpp
+index 9b6d6e0db65e..cc4c1716a4b5 100644
+--- a/llvm/lib/TargetParser/Triple.cpp
++++ b/llvm/lib/TargetParser/Triple.cpp
+@@ -53,6 +53,7 @@ StringRef Triple::getArchTypeName(ArchType Kind) {
+   case mips:           return "mips";
+   case mipsel:         return "mipsel";
+   case msp430:         return "msp430";
++  case native_cpu:     return "native_cpu";
+   case nvptx64:        return "nvptx64";
+   case nvptx:          return "nvptx";
+   case ppc64:          return "powerpc64";
+@@ -251,6 +252,8 @@ StringRef Triple::getArchTypePrefix(ArchType Kind) {
+   case dxil:        return "dx";
+ 
+   case xtensa:      return "xtensa";
++
++  case native_cpu:  return "native_cpu";
+   }
+ }
+ 
+@@ -493,6 +496,7 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
+     .Case("loongarch64", loongarch64)
+     .Case("dxil", dxil)
+     .Case("xtensa", xtensa)
++    .Case("native_cpu", native_cpu)
+     .Default(UnknownArch);
+ }
+ 
+@@ -642,6 +646,7 @@ static Triple::ArchType parseArch(StringRef ArchName) {
+                  "dxilv1.4", "dxilv1.5", "dxilv1.6", "dxilv1.7", "dxilv1.8",
+                  Triple::dxil)
+           .Case("xtensa", Triple::xtensa)
++          .Case("native_cpu", Triple::native_cpu)
+           .Default(Triple::UnknownArch);
+ 
+   // Some architectures require special parsing logic just to compute the
+@@ -1035,6 +1040,9 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
+ 
+   case Triple::dxil:
+     return Triple::DXContainer;
++
++  case Triple::native_cpu:
++    return Triple::UnknownObjectFormat;
+   }
+   llvm_unreachable("unknown architecture");
+ }
+@@ -1673,6 +1681,7 @@ void Triple::setOSAndEnvironmentName(StringRef Str) {
+ unsigned Triple::getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
+   switch (Arch) {
+   case llvm::Triple::UnknownArch:
++  case llvm::Triple::native_cpu:
+     return 0;
+ 
+   case llvm::Triple::avr:
+@@ -1785,6 +1794,7 @@ Triple Triple::get32BitArchVariant() const {
+   case Triple::bpfeb:
+   case Triple::bpfel:
+   case Triple::msp430:
++  case Triple::native_cpu:
+   case Triple::systemz:
+   case Triple::ve:
+     T.setArch(UnknownArch);
+@@ -1870,6 +1880,7 @@ Triple Triple::get64BitArchVariant() const {
+   case Triple::lanai:
+   case Triple::m68k:
+   case Triple::msp430:
++  case Triple::native_cpu:
+   case Triple::r600:
+   case Triple::shave:
+   case Triple::sparcel:
+@@ -1976,6 +1987,7 @@ Triple Triple::getBigEndianArchVariant() const {
+   case Triple::ve:
+   case Triple::csky:
+   case Triple::xtensa:
++  case Triple::native_cpu:
+ 
+   // ARM is intentionally unsupported here, changing the architecture would
+   // drop any arch suffixes.
+@@ -2060,6 +2072,7 @@ bool Triple::isLittleEndian() const {
+   case Triple::mips64el:
+   case Triple::mipsel:
+   case Triple::msp430:
++  case Triple::native_cpu:
+   case Triple::nvptx64:
+   case Triple::nvptx:
+   case Triple::ppcle:
+diff --git a/llvm/unittests/TargetParser/TripleTest.cpp b/llvm/unittests/TargetParser/TripleTest.cpp
+index bbd12e6d0e41..9622d94340c0 100644
+--- a/llvm/unittests/TargetParser/TripleTest.cpp
++++ b/llvm/unittests/TargetParser/TripleTest.cpp
+@@ -1372,6 +1372,12 @@ TEST(TripleTest, ParsedIDs) {
+   EXPECT_EQ(Triple::Managarm, T.getOS());
+   EXPECT_EQ(Triple::Mlibc, T.getEnvironment());
+ 
++  T = Triple("native_cpu");
++  EXPECT_EQ(Triple::native_cpu, T.getArch());
++  EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
++  EXPECT_EQ(Triple::UnknownOS, T.getOS());
++  EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
++
+   T = Triple("huh");
+   EXPECT_EQ(Triple::UnknownArch, T.getArch());
+ }
+@@ -1888,6 +1894,11 @@ TEST(TripleTest, BitWidthChecks) {
+   EXPECT_FALSE(T.isArch16Bit());
+   EXPECT_TRUE(T.isArch32Bit());
+   EXPECT_FALSE(T.isArch64Bit());
++
++  T.setArch(Triple::native_cpu);
++  EXPECT_FALSE(T.isArch16Bit());
++  EXPECT_FALSE(T.isArch32Bit());
++  EXPECT_FALSE(T.isArch64Bit());
+ }
+ 
+ TEST(TripleTest, BitWidthArchVariants) {
+@@ -2090,6 +2101,10 @@ TEST(TripleTest, BitWidthArchVariants) {
+   T.setArch(Triple::xtensa);
+   EXPECT_EQ(Triple::xtensa, T.get32BitArchVariant().getArch());
+   EXPECT_EQ(Triple::UnknownArch, T.get64BitArchVariant().getArch());
++
++  T.setArch(Triple::native_cpu);
++  EXPECT_EQ(Triple::UnknownArch, T.get32BitArchVariant().getArch());
++  EXPECT_EQ(Triple::UnknownArch, T.get64BitArchVariant().getArch());
+ }
+ 
+ TEST(TripleTest, EndianArchVariants) {
+@@ -2243,6 +2258,11 @@ TEST(TripleTest, EndianArchVariants) {
+   EXPECT_TRUE(T.isLittleEndian());
+   EXPECT_EQ(Triple::UnknownArch, T.getBigEndianArchVariant().getArch());
+   EXPECT_EQ(Triple::dxil, T.getLittleEndianArchVariant().getArch());
++
++  T.setArch(Triple::native_cpu);
++  EXPECT_TRUE(T.isLittleEndian());
++  EXPECT_EQ(Triple::UnknownArch, T.getBigEndianArchVariant().getArch());
++  EXPECT_EQ(Triple::native_cpu, T.getLittleEndianArchVariant().getArch());
+ }
+ 
+ TEST(TripleTest, XROS) {
+-- 
+2.47.2
+

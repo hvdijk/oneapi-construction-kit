@@ -1,4 +1,4 @@
-From 2098acd9321c9a6d01a6660ada10e5fed48435a7 Mon Sep 17 00:00:00 2001
+From 107fba13ceff169f407d60d5c07b1b65b248ae29 Mon Sep 17 00:00:00 2001
 From: Harald van Dijk <harald.vandijk@codeplay.com>
 Date: Tue, 1 Jul 2025 16:14:10 +0100
 Subject: [PATCH] [NFC] Fix SYCLInstallationDetector InstallationCandidates.
@@ -33,7 +33,7 @@ constructor.
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/clang/lib/Driver/ToolChains/SYCL.cpp b/clang/lib/Driver/ToolChains/SYCL.cpp
-index a8658b08e6e5..4de45cf0992e 100644
+index 68c36a05f36d..8622279a1745 100644
 --- a/clang/lib/Driver/ToolChains/SYCL.cpp
 +++ b/clang/lib/Driver/ToolChains/SYCL.cpp
 @@ -147,7 +147,7 @@ SYCLInstallationDetector::SYCLInstallationDetector(const Driver &D)

@@ -1,4 +1,4 @@
-From 982bb189f8042b5d6263340c3a8568fbc25b9ea7 Mon Sep 17 00:00:00 2001
+From c6c44e8ca3563d5315a2e1e95d1bb39f50c0a487 Mon Sep 17 00:00:00 2001
 From: Harald van Dijk <harald.vandijk@codeplay.com>
 Date: Mon, 30 Jun 2025 17:28:19 +0100
 Subject: [PATCH] [SYCL][NativeCPU] Create NativeCPUABIInfo.
@@ -62,7 +62,7 @@ index 91f304395fe8..f6f721b12716 100644
    Targets/PPC.cpp
    Targets/RISCV.cpp
 diff --git a/clang/lib/CodeGen/CodeGenModule.cpp b/clang/lib/CodeGen/CodeGenModule.cpp
-index 9478b836e1fd..74790e043edb 100644
+index b2b1b72454f8..f97cc495e6e9 100644
 --- a/clang/lib/CodeGen/CodeGenModule.cpp
 +++ b/clang/lib/CodeGen/CodeGenModule.cpp
 @@ -117,9 +117,8 @@ static bool SYCLCUDAIsSYCLDevice(const clang::LangOptions &LangOpts) {

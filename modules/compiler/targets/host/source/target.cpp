@@ -440,12 +440,14 @@ std::unique_ptr<compiler::Module> HostTarget::createModule(uint32_t &num_errors,
   };
 }
 
-llvm::LLVMContext &HostTarget::getLLVMContext() {
-  return *llvm_ts_context.getContext();
+void HostTarget::withLLVMContext(void (*f)(llvm::LLVMContext &, void *),
+                                 void *p) {
+  llvm_ts_context.withContextDo([&](llvm::LLVMContext *C) { f(*C, p); });
 }
 
-const llvm::LLVMContext &HostTarget::getLLVMContext() const {
-  return *llvm_ts_context.getContext();
+void HostTarget::withLLVMContext(void (*f)(const llvm::LLVMContext &, void *),
+                                 void *p) const {
+  llvm_ts_context.withContextDo([&](const llvm::LLVMContext *C) { f(*C, p); });
 }
 
 llvm::Module *HostTarget::getBuiltins() const { return builtins.get(); }

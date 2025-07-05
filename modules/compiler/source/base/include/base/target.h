@@ -24,6 +24,8 @@
 #include <llvm/IR/Module.h>
 #include <mux/mux.h>
 
+#include <future>
+
 namespace compiler {
 class BaseContext;
 
@@ -53,10 +55,86 @@ class BaseTarget : public Target {
 
   NotifyCallbackFn getNotifyCallbackFn() const { return callback; }
 
-  /// @brief Returns the (non-null) LLVMContext.
-  virtual llvm::LLVMContext &getLLVMContext() = 0;
-  /// @brief Returns the (non-null) LLVMContext.
-  virtual const llvm::LLVMContext &getLLVMContext() const = 0;
+  /// @brief Calls a function with the LLVMContext, taking into account any
+  /// required locking to allow the function exclusive use.
+  virtual void withLLVMContext(void (*)(llvm::LLVMContext &, void *),
+                               void *) = 0;
+
+  /// @brief Calls a function with the LLVMContext, taking into account any
+  /// required locking to allow the function exclusive use.
+  virtual void withLLVMContext(void (*)(const llvm::LLVMContext &, void *),
+                               void *) const = 0;
+
+  /// @brief Calls a function with the (non-null) LLVMContext, taking into
+  /// account any required locking to allow the function exclusive use.
+  template <typename F>
+  auto withLLVMContext(F &&f) -> std::enable_if_t<std::is_same_v<
+      decltype(std::forward<F>(f)(std::declval<llvm::LLVMContext &>())),
+      void>> {
+    withLLVMContext([](llvm::LLVMContext &C,
+                       void *f) { (std::forward<F>(*static_cast<F *>(f)))(C); },
+                    std::addressof(f));
+  }
+
+  /// @brief Calls a function with the (non-null) LLVMContext, taking into
+  /// account any required locking to allow the function exclusive use.
+  template <typename F>
+  auto withLLVMContext(F &&f) const -> std::enable_if_t<std::is_same_v<
+      decltype(std::forward<F>(f)(std::declval<const llvm::LLVMContext &>())),
+      void>> {
+    withLLVMContext([](const llvm::LLVMContext &C,
+                       void *f) { (std::forward<F>(*static_cast<F *>(f)))(C); },
+                    std::addressof(f));
+  }
+
+  /// @brief Calls a function with the (non-null) LLVMContext, taking into
+  /// account any required locking to allow the function exclusive use.
+  template <typename F>
+  auto withLLVMContext(F &&f) -> std::enable_if_t<
+      !std::is_same_v<
+          decltype(std::forward<F>(f)(std::declval<llvm::LLVMContext &>())),
+          void>,
+      decltype(std::forward<F>(f)(std::declval<llvm::LLVMContext &>()))> {
+    std::promise<decltype(std::forward<F>(f)(
+        std::declval<llvm::LLVMContext &>()))>
+        result;
+    withLLVMContext(
+        [&](llvm::LLVMContext &C) { result.set_value(std::forward<F>(f)(C)); });
+    return result.get_future().get();
+  }
+
+  /// @brief Calls a function with the (non-null) LLVMContext, taking into
+  /// account any required locking to allow the function exclusive use.
+  template <typename F>
+  auto withLLVMContext(F &&f) const -> std::enable_if_t<
+      !std::is_same_v<decltype(std::forward<F>(f)(
+                          std::declval<const llvm::LLVMContext &>())),
+                      void>,
+      decltype(std::forward<F>(f)(std::declval<const llvm::LLVMContext &>()))> {
+    std::promise<decltype(std::forward<F>(f)(
+        std::declval<const llvm::LLVMContext &>()))>
+        result;
+    withLLVMContext([&](const llvm::LLVMContext &C) {
+      result.set_value(std::forward<F>(f)(C));
+    });
+    return result.get_future().get();
+  }
+
+  [[deprecated(
+      "getLLVMContext() does not use locking, use withLLVMContext instead.")]]
+  llvm::LLVMContext &getLLVMContext() {
+    return withLLVMContext(
+        [](llvm::LLVMContext &C) -> llvm::LLVMContext & { return C; });
+  }
+
+  [[deprecated(
+      "getLLVMContext() does not use locking, use withLLVMContext instead.")]]
+  const llvm::LLVMContext &getLLVMContext() const {
+    return withLLVMContext(
+        [](const llvm::LLVMContext &C) -> const llvm::LLVMContext & {
+          return C;
+        });
+  }
 
  protected:
   /// @brief Initialize the compiler target after loading the builtins module.
@@ -86,10 +164,13 @@ class BaseAOTTarget : public BaseTarget {
  public:
   BaseAOTTarget(const compiler::Info *compiler_info, compiler::Context *context,
                 NotifyCallbackFn callback);
-  /// @see BaseTarget::getLLVMContext
-  virtual llvm::LLVMContext &getLLVMContext() override;
-  /// @see BaseTarget::getLLVMContext
-  virtual const llvm::LLVMContext &getLLVMContext() const override;
+
+  /// @see BaseTarget::withLLVMContext
+  void withLLVMContext(void (*)(llvm::LLVMContext &, void *), void *) override;
+
+  /// @see BaseTarget::withLLVMContext
+  void withLLVMContext(void (*)(const llvm::LLVMContext &, void *),
+                       void *) const override;
 
   /// @see BaseTarget::getBuiltins
   llvm::Module *getBuiltins() const override { return builtins.get(); };

@@ -112,10 +112,15 @@ BaseAOTTarget::BaseAOTTarget(const compiler::Info *compiler_info,
                              NotifyCallbackFn callback)
     : BaseTarget(compiler_info, context, callback) {}
 
-llvm::LLVMContext &BaseAOTTarget::getLLVMContext() { return llvm_context; }
+void BaseAOTTarget::withLLVMContext(void (*f)(llvm::LLVMContext &, void *),
+                                    void *p) {
+  f(llvm_context, p);
+}
 
-const llvm::LLVMContext &BaseAOTTarget::getLLVMContext() const {
-  return llvm_context;
+void BaseAOTTarget::withLLVMContext(void (*f)(const llvm::LLVMContext &,
+                                              void *),
+                                    void *p) const {
+  f(llvm_context, p);
 }
 
 }  // namespace compiler

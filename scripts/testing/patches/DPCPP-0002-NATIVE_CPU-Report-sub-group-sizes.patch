@@ -1,0 +1,33 @@
+From f6e14950f0db09e72565464c7efc9e072ea9a820 Mon Sep 17 00:00:00 2001
+From: Colin Davidson <colin.davidson@codeplay.com>
+Date: Fri, 18 Jul 2025 09:23:28 +0100
+Subject: [PATCH] [NATIVE_CPU] Report sub group sizes
+
+The SYCL-CTS test test_kernel_info was failing due to falsely reporting
+1 as the maximum allowed subgroup size. This resolves this by outputting
+an increasing power of 2 from 1 to 32.
+---
+ unified-runtime/source/adapters/native_cpu/device.cpp | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/unified-runtime/source/adapters/native_cpu/device.cpp b/unified-runtime/source/adapters/native_cpu/device.cpp
+index 369b4cd7ed01..9812cc7e63bb 100644
+--- a/unified-runtime/source/adapters/native_cpu/device.cpp
++++ b/unified-runtime/source/adapters/native_cpu/device.cpp
+@@ -348,8 +348,11 @@ UR_APIEXPORT ur_result_t UR_APICALL urDeviceGetInfo(ur_device_handle_t hDevice,
+     return ReturnValue(bool{0});
+   case UR_DEVICE_INFO_IMAGE_SRGB:
+     return ReturnValue(bool{0});
+-  case UR_DEVICE_INFO_SUB_GROUP_SIZES_INTEL:
+-    return ReturnValue(uint32_t{1});
++  case UR_DEVICE_INFO_SUB_GROUP_SIZES_INTEL: {
++    // Allow power of 2 subgroups up to size 32.
++    const uint32_t SubGroupSizes[] = {1, 2, 4, 8, 16, 32};
++    return ReturnValue(SubGroupSizes, std::size(SubGroupSizes));
++  }
+   case UR_DEVICE_INFO_GPU_EU_COUNT:
+   case UR_DEVICE_INFO_PCI_ADDRESS:
+   case UR_DEVICE_INFO_GPU_EU_SLICES:
+-- 
+2.47.2
+

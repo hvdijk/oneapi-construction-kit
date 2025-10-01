@@ -1,0 +1,29 @@
+From f6d15f736da5166805a09da19545f3e3daff8c87 Mon Sep 17 00:00:00 2001
+From: Harald van Dijk <harald@gigawatt.nl>
+Date: Thu, 25 Sep 2025 14:56:30 +0100
+Subject: [PATCH] One last file path fix for test_compiler.
+
+Although run_conformance.py runs from test_conformance, it will change the
+current working directory before launching each individual test. Adjust
+the path accordingly.
+---
+ test_conformance/compiler/main.cpp | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/test_conformance/compiler/main.cpp b/test_conformance/compiler/main.cpp
+index 3845f2fd..5d07159b 100644
+--- a/test_conformance/compiler/main.cpp
++++ b/test_conformance/compiler/main.cpp
+@@ -19,8 +19,7 @@
+ #include "harness/testHarness.h"
+ #include "harness/stringHelpers.h"
+ 
+-std::string spvBinariesPath =
+-    to_string((std::filesystem::path("compiler") / "spirv_bin").u8string());
++std::string spvBinariesPath = "spirv_bin";
+ const std::string spvBinariesPathArg = "--spirv-binaries-path";
+ 
+ void printUsage()
+-- 
+2.47.3
+
